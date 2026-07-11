@@ -1,13 +1,13 @@
 ---
 name: vault-duet
 description: >-
-  Work on a project defined in an Obsidian vault (e.g. Direful, IdeaVerse, Aggeggiors, Casa Mia),
+  Work on a project defined in an Obsidian vault (e.g. IdeaVerse, Casa Mia),
   bootstrapping context from the vault's CLAUDE.md, Home.md and its project-specific skills in
   .claude/skills/, then executing the task either directly (routine work) or through the full
   Claude⇄Codex duet workflow (interview → consensus plan → Codex build → critical review) with
   Obsidian session logs in the vault's Sessions folder. USE THIS SKILL whenever the user names one of their
   Obsidian vault projects and asks to work on it, open a session on it, or build something for it —
-  "lavora sul progetto X", "apri una sessione su Direful", "vault duet", "duet sul progetto",
+  "lavora sul progetto X", "apri una sessione su IdeaVerse", "vault duet", "duet sul progetto",
   "nuova sessione di lavoro su IdeaVerse", "fai X per il progetto Y" — even if they don't say
   "duet" or "Obsidian" explicitly. Also trigger when the user asks to run a claude-codex duet
   inside or against one of their vaults.
