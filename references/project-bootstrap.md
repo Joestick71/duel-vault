@@ -1,20 +1,23 @@
 # Project bootstrap — resolving and loading a vault project
 
-The whole point of vault-duet is that the project, not the conversation, is the source of truth. This file describes how to turn "lavora su <nome progetto>" into a loaded, binding project context.
+The whole point of duel-vault is that the project, not the conversation, is the source of truth. This file describes how to turn "lavora su <nome progetto>" into a loaded, binding project context.
 
 ## 1. Config and project resolution
 
-Persistent config: `~/.claude/vault-duet.config.json`
+Persistent config: `~/.claude/duel-vault.config.json`
 
 ```json
 {
   "projects_root": "<absolute path to the directory containing the vaults>",
   "default_fix_cycles": 3,
-  "max_consensus_rounds": 5
+  "max_consensus_rounds": 5,
+  "lint_required_fields": []
 }
 ```
 
 If the file is missing, ask the user for the projects root (the directory whose subdirectories are Obsidian vaults), verify it exists, and save the config.
+
+`lint_required_fields` lists frontmatter fields the vault mandates on every note beyond the duel-vault templates (e.g. `status`, `rank`). When CLAUDE.md declares such fields in step 2 below, record them here so `scripts/vault-lint.py` enforces them without needing `--require-field` on every run (see `references/vault-lint.md`).
 
 Resolution: list the directories under `projects_root` and match the project name the user gave, case-insensitively and tolerantly (a lowercase or partial name matches the vault directory, e.g. "notes" → `Notes`, "field" → `Field Journal`). A directory qualifies as a project if it contains a `CLAUDE.md`. Rules:
 

@@ -3,12 +3,14 @@
 All session notes go to `<vault>/Sessions/`. Route A writes a single note; Route B gets a session folder. Filenames are fixed so wikilinks always resolve.
 
 Rules for every note:
-- YAML frontmatter as in the templates below; tags always include `vault-duet` and `vault-duet/<phase>`
+- YAML frontmatter as in the templates below; tags always include `duel-vault` and `duel-vault/<phase>`
 - Wikilinks (`[[...]]`) to sibling notes, never relative markdown links
 - `> [!decision]` callout for every decision; `> [!warning]` for deviations, escalations, failures
 - Written **during** the phase, not reconstructed afterwards
 - Language: the vault's operating language (from CLAUDE.md)
 - Respect any extra frontmatter fields the vault's CLAUDE.md mandates for all notes (e.g. `status`, `rank`) — the vault's rules stack on top of these templates
+
+Every rule above that a machine can check is checked by `scripts/vault-lint.py` (`references/vault-lint.md`). Run it on the notes you just wrote rather than re-reading them: filenames below are exactly what it expects, and it is the closing gate on both routes.
 
 ## Route A — single session log
 
@@ -21,7 +23,7 @@ session: <session-slug>
 route: A
 date: <YYYY-MM-DD>
 skills_used: [<project/global skills invoked>]
-tags: [vault-duet, vault-duet/session]
+tags: [duel-vault, duel-vault/session]
 ---
 
 # Sessione — <title>
@@ -60,14 +62,14 @@ Claude: ~<n> est. (no Codex on this route)
 ---
 project: <vault-name>
 session: <session-slug>
-type: vault-duet-moc
+type: duel-vault-moc
 date: <YYYY-MM-DD>
 model: <codex-model>
 status: in-progress | complete | escalated
-tags: [vault-duet, vault-duet/moc]
+tags: [duel-vault, duel-vault/moc]
 ---
 
-# Vault Duet — <Session title>
+# Duel Vault — <Session title>
 
 **Progetto:** <vault-name> · **Goal:** one-line summary
 **Codex model:** `<model>` · **Started:** <date> · **Status:** <status>
@@ -94,7 +96,7 @@ date: <YYYY-MM-DD>
 approved_by_user: true
 tokens_codex: 0
 tokens_claude_est: <n>
-tags: [vault-duet, vault-duet/interview]
+tags: [duel-vault, duel-vault/interview]
 ---
 
 # Requirements — <Session title>
@@ -128,7 +130,7 @@ plan_version: <M>
 approved_by_user: true
 tokens_codex: <n>
 tokens_claude_est: <n>
-tags: [vault-duet, vault-duet/plan]
+tags: [duel-vault, duel-vault/plan]
 ---
 
 # Plan — <Session title>
@@ -174,7 +176,7 @@ phase: build
 date: <YYYY-MM-DD>
 tokens_codex: <n>
 tokens_claude_est: <n>
-tags: [vault-duet, vault-duet/build]
+tags: [duel-vault, duel-vault/build]
 ---
 
 # Build log — <Session title>
@@ -202,7 +204,7 @@ cycle: <N>
 date: <YYYY-MM-DD>
 tokens_codex: <n>
 tokens_claude_est: <n>
-tags: [vault-duet, vault-duet/review]
+tags: [duel-vault, duel-vault/review]
 ---
 
 # Review — cycle <N>
@@ -235,7 +237,7 @@ date: <YYYY-MM-DD>
 fix_cycles_used: <N>
 tokens_codex_total: <n>
 tokens_claude_est_total: <n>
-tags: [vault-duet, vault-duet/final]
+tags: [duel-vault, duel-vault/final]
 ---
 
 # Final report — <Session title>
