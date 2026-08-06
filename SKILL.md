@@ -40,6 +40,8 @@ Classify the task and tell the user which route you chose and why (one line — 
 
 When in doubt, say so and let the user pick. A task that starts on Route A and grows can be upgraded: stop, say why, and enter Phase 1 with what you've learned so far.
 
+**NotebookLM lane (orthogonal, opt-in).** Either route can additionally run a NotebookLM source lane — a corpus of external sources turned into vault deliverables (report, podcast, mind map, infographic, …). It is **off unless the user explicitly asks for it**; if you think it would help, say so in one line at triage and let them decide. When it opens, read `references/notebooklm.md` and follow it: preflight `notebooklm auth check --test --json` alongside the Codex preflight, always address the notebook by explicit id, run every long generation through a background agent that only waits and downloads, and let nothing reach the vault except through `scripts/nblm-import.py`. If a project skill already drives NotebookLM for this kind of task, that skill owns the notebook — don't open a parallel lane.
+
 **Route B setup:** working dir `<vault>/.duel-vault/<session-slug>/` (dot-folder — Obsidian ignores it) for message-passing files, prompts, raw Codex output, `session.json` and `tokens.json`; vault log dir `<vault>/Sessions/<session-slug>/` for all Obsidian notes, starting with the MOC `00 - <session-slug> MOC.md` (templates in `references/obsidian-logging.md`).
 
 ## Phase 1 — Interview (Route B, Claude)
@@ -68,6 +70,8 @@ Write the agreed plan as `02-plan.md` plus round files under `02a-consensus-roun
 
 Codex executes the plan; Claude orchestrates and does not write code. Small plans (≤5 steps) can go whole; larger ones go step-by-step so failures are isolated. Each prompt is self-contained: relevant plan steps verbatim, the requirements they map to, workspace state, project-brief excerpts, the known-failure-modes block (especially the deviations Codex has made in this vault before), and the instruction to report files touched and deviations. Use write-enabled sandbox flags with `-C` pointed at the directory CLAUDE.md designates for this kind of work (default: the vault).
 
+**Exception, NotebookLM lane only:** Codex has no Google authentication in its sandbox, so Claude executes the plan's NotebookLM steps itself and hands Codex only the materialized files. Log them in `03-build-log.md` like any other invocation, marked as NotebookLM/Claude. This is not a licence to write code — everything the plan implements in code still goes to Codex.
+
 After each invocation: verify claimed files exist, run the plan's smoke check for that step, run `scripts/vault-lint.py --files <notes touched>` (see `references/vault-lint.md`), append the entry to `03-build-log.md` **as you go**. Include the same lint command in the build prompt so Codex self-checks before reporting back. Deviations: acceptable improvement (keep, document why) or violation (re-prompt with correction) — never silently accept a requirement violation.
 
 ## Phase 4 — Critical review (Route B, Claude) with loop-back
@@ -76,6 +80,8 @@ After each invocation: verify claimed files exist, run the plan's smoke check fo
 
 **Then check the recurring findings from Phase 0 explicitly** — they are this vault's highest-prior-probability defects, and they cost one targeted look each.
 
+**If the NotebookLM lane is open**, you may also ask the notebook to verify claims in a content deliverable against its own sources (`references/notebooklm.md`). Its answers are candidate findings you verify yourself before classifying them — never a gate.
+
 Then review everything yourself — read it, run it, test it — against every `R#` and every plan step, **and against the vault's conventions** the linter can't judge (language, naming sense, whether a requirement is genuinely satisfied — CLAUDE.md violations are findings too). Classify findings BLOCKER / MAJOR / MINOR in `04-review-cycle-N.md`. Any BLOCKER or MAJOR → fix-brief to Codex (Phase 3 machinery), re-review; max 3 fix cycles. Then write `05-final-report.md` (outcome per requirement, residual issues, token table) and update the MOC.
 
 ## Closing duties (both routes)
@@ -83,13 +89,14 @@ Then review everything yourself — read it, run it, test it — against every `
 Before declaring the session done:
 
 0. **The session must lint clean.** `scripts/vault-lint.py --session <dir>` (Route B) or `--files <log>` (Route A) must exit 0. Fix what it reports; if an error is a deliberate deviation from the templates, say so explicitly in the final report rather than leaving it unexplained.
+   - *NotebookLM lane only:* every artifact that entered the vault went through `scripts/nblm-import.py`, `06-sources.md` records the corpus (Route A: the provenance block in the log), and no artifact is left pending unmentioned — a generation still running at closing time is a residual in the final report, with its id.
 1. **Honor the vault's end-of-session obligations** from CLAUDE.md — e.g. update the vault's index notes, memory files, dashboards, or commit+push if the vault demands it. These are not optional; they're part of the project's contract.
 2. Update `Home.md` only if the vault's own conventions say the dashboard tracks this kind of output.
 3. Present the final report (Route B) or the session log (Route A) to the user, with the token line.
 
 ## Token accounting
 
-Route B only (Route A has no Codex and needs just a one-line estimate in its log). Same rules as the duet: Codex tokens **measured** per invocation (capture method verified at preflight — `references/codex-cli.md`), Claude tokens **estimated** as `ceil(chars/4)` and always labeled *est.*, `tokens.json` updated at the same moments you write the logs, one-line token status at each checkpoint, full per-phase table in the final report. If capture fails, record `"unavailable"` — never invent numbers.
+Route B only (Route A has no Codex and needs just a one-line estimate in its log). Same rules as the duet: Codex tokens **measured** per invocation (capture method verified at preflight — `references/codex-cli.md`), Claude tokens **estimated** as `ceil(chars/4)` and always labeled *est.*, `tokens.json` updated at the same moments you write the logs, one-line token status at each checkpoint, full per-phase table in the final report. If capture fails, record `"unavailable"` — never invent numbers. NotebookLM exposes no token counts at all: account it as a separate column of *operations* (artifacts generated, sources imported) with tokens `unavailable`, never as an estimate.
 
 ## Logging rules
 

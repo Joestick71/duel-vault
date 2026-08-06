@@ -29,7 +29,7 @@ ROUTE_A_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2}) (?P<slug>.+)$")
 
 SESSION_NOTE_RE = re.compile(
     r"^(00 - .+ MOC|01-requirements|02-plan|03-build-log"
-    r"|04-review-cycle-\d+|05-final-report|plan-disagreement"
+    r"|04-review-cycle-\d+|05-final-report|06-sources|plan-disagreement"
     r"|plan-round-\d+-(claude|codex))$"
 )
 

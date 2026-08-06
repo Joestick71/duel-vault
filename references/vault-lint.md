@@ -58,6 +58,11 @@ error and every field problem it can still see — one bad value never hides the
 3. **Phase 4 exit condition.** The session is not clean while the linter reports errors.
 4. **Route A closing.** Run `--files` on the single session log before declaring done.
 
+Notes that came *out of* a NotebookLM artifact are deliverables, not session logs: they
+live wherever the vault keeps content and are not linted here. What is linted is the
+provenance — `06-sources.md` and its `notebooklm: true` counterpart on the MOC
+(`VD023`). See `references/notebooklm.md`.
+
 ## Check catalogue
 
 | Code | Level | Check |
@@ -77,6 +82,7 @@ error and every field problem it can still see — one bad value never hides the
 | `VD020` | WARN | unexpected filename in the session folder / loose note in `Sessions/` |
 | `VD021` | ERROR | filename disagrees with frontmatter (review cycle, round number, round author, Route A date, MOC slug) or an illegal `PROPOSE` verdict |
 | `VD022` | ERROR/WARN | session structure: missing MOC, finished session missing an earlier phase note, non-contiguous review cycles, a codex round with no claude round |
+| `VD023` | ERROR/WARN | NotebookLM lane: MOC says `notebooklm: true` but there is no `06-sources.md` (ERROR) / `06-sources.md` exists but the MOC does not declare the lane (WARN) |
 | `VD030` | WARN | expected template section missing (only with `--check-sections`) |
 | `VD031` | WARN | unfilled `<template placeholder>` left in the body |
 | `VD040` | ERROR | a requirement declared in `01-requirements.md` is never referenced by `02-plan.md` |

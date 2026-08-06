@@ -23,6 +23,7 @@ session: <session-slug>
 route: A
 date: <YYYY-MM-DD>
 skills_used: [<project/global skills invoked>]
+notebooklm: true          # only when the NotebookLM lane is open; omit otherwise
 tags: [duel-vault, duel-vault/session]
 ---
 
@@ -43,6 +44,10 @@ tags: [duel-vault, duel-vault/session]
 Claude: ~<n> est. (no Codex on this route)
 ```
 
+Route A has no session folder, so when the NotebookLM lane is open the provenance goes
+inline: add a `## NotebookLM` section and paste the fragment from
+`nblm-import.py manifest --format block` into it (see below).
+
 ## Route B — session folder
 
 ```
@@ -53,7 +58,8 @@ Claude: ~<n> est. (no Codex on this route)
 ├── 02a-consensus-rounds/plan-round-N-{claude,codex}.md
 ├── 03-build-log.md
 ├── 04-review-cycle-N.md
-└── 05-final-report.md
+├── 05-final-report.md
+└── 06-sources.md            ← only when the NotebookLM lane is open
 ```
 
 ### 00 — MOC (index)
@@ -66,6 +72,7 @@ type: duel-vault-moc
 date: <YYYY-MM-DD>
 model: <codex-model>
 status: in-progress | complete | escalated
+notebooklm: true          # only when the NotebookLM lane is open; omit otherwise
 tags: [duel-vault, duel-vault/moc]
 ---
 
@@ -80,6 +87,7 @@ tags: [duel-vault, duel-vault/moc]
 - [[03-build-log]] — ✅/🔄/⬜
 - [[04-review-cycle-1]] — ✅/🔄/⬜
 - [[05-final-report]] — ✅/🔄/⬜
+- [[06-sources]] — ✅/🔄/⬜ (only with `notebooklm: true`)
 
 ## Key decisions
 > [!decision] (appended as they happen, with link to the note where the detail lives)
@@ -257,15 +265,67 @@ tags: [duel-vault, duel-vault/final]
 Consensus rounds: N · Build invocations: N · Fix cycles: N
 
 ## Token consumption
-| Phase | Codex (measured) | Claude (est.) |
-|-------|------------------|---------------|
-| 1 — Interview | 0 | ~n |
-| 2 — Planning  | n | ~n |
-| 3 — Build     | n | ~n |
-| 4 — Review    | n | ~n |
-| **Total**     | **n** | **~n** |
+| Phase | Codex (measured) | Claude (est.) | NotebookLM |
+|-------|------------------|---------------|------------|
+| 1 — Interview | 0 | ~n | n ops |
+| 2 — Planning  | n | ~n | 0 |
+| 3 — Build     | n | ~n | n ops |
+| 4 — Review    | n | ~n | n ops |
+| **Total**     | **n** | **~n** | **n ops** |
 
-> [!info] Codex figures come from CLI-reported usage; Claude figures are character-based estimates (chars/4), not billing data.
+> [!info] Codex figures come from CLI-reported usage; Claude figures are character-based estimates (chars/4), not billing data. NotebookLM exposes no token counts — its column counts operations only.
+
+(drop the NotebookLM column entirely when the lane never opened)
+
 ## Trail
 [[01-requirements]] → [[02-plan]] → [[03-build-log]] → [[04-review-cycle-1]] → this
 ```
+
+### 06 — Sources (NotebookLM lane only)
+
+Written by `scripts/nblm-import.py manifest`, not by hand — it reads the live notebook so
+the corpus is recorded as it actually is. Refresh it whenever sources are added.
+
+```markdown
+---
+project: <vault-name>
+session: <session-slug>
+phase: sources
+date: <YYYY-MM-DD>
+notebook_id: <notebook-uuid>
+sources: <n>
+artifacts: <n>
+tags: [duel-vault, duel-vault/notebooklm]
+---
+
+# NotebookLM — <Session title>
+
+> [!info] Notebook `<notebook-uuid>` · <n> sources · <n> artifacts · captured <YYYY-MM-DD>
+
+## Sources
+| # | Title | Type | Status | Origin |
+|---|-------|------|--------|--------|
+
+## Artifacts
+| # | Type | Status | Artifact ID |
+|---|------|--------|-------------|
+
+## Prompts
+(every generation prompt, verbatim — artifacts are not reproducible, the inputs are all
+that can be audited)
+
+## Trail
+[[00 - <session-slug> MOC]]
+```
+
+A MOC with `notebooklm: true` and no `06-sources.md` is a lint error: the lane ran and its
+provenance was lost.
+
+### Deliverable notes
+
+Notes produced *from* NotebookLM artifacts are deliverables, not session logs: they live
+where the vault's `CLAUDE.md` says content lives, follow the vault's own frontmatter
+conventions, and are written by `nblm-import.py import` (which stacks the vault's mandated
+fields on top of its own). They carry `source: notebooklm`, the `notebook_id`, a provenance
+callout and a wikilink back to the session, so a note found six months later can be traced
+to the corpus that produced it.

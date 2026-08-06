@@ -29,10 +29,12 @@ references/
   obsidian-logging.md             note templates and conventions for the Sessions folder logs
   vault-lint.md                   the deterministic gate: what it checks, when it runs, check catalogue
   session-history.md              how prior sessions feed back into a new one
+  notebooklm.md                   the opt-in NotebookLM source lane: preflight, agents, provenance
 scripts/
   vault_common.py                 shared frontmatter parsing and note-name conventions
   vault-lint.py                   frontmatter/wikilink/structure linter for session notes
   session-history.py              extracts priors from prior sessions in the vault
+  nblm-import.py                  materializes NotebookLM artifacts into the vault, with provenance
 ```
 
 ## The mechanical gate
@@ -72,6 +74,38 @@ whatever language the vault writes its notes. It does not attempt semantic clust
 judgement belongs to the model reading the output. The block is explicitly labelled
 **priors, not requirements**. See [`references/session-history.md`](references/session-history.md).
 
+## The NotebookLM lane (opt-in)
+
+NotebookLM is a capability, not a third route: either route can run with the lane open or
+closed. It stays **closed unless the user explicitly asks for it** — it costs a
+browser-backed login, minutes of wall clock, and an external dependency that sessions
+without a source corpus should not pay for.
+
+When it is open, three rules keep it from corrupting the workflow:
+
+- **Nothing blocks.** Every long generation (podcast 10–20 min, video 15–45, deep research
+  15–30) is started by the main thread and awaited by a background agent that only waits
+  and downloads — it never generates, never re-plans, never writes into the vault.
+- **Nothing enters the vault raw.** `notebooklm download` produces files with no
+  frontmatter, no tags and no links; `scripts/nblm-import.py import` wraps them into proper
+  notes (and turns mind maps into real Obsidian `.canvas` files) so the closing lint gate
+  still passes.
+- **Nothing is unattributable.** NotebookLM artifacts are not reproducible, so the corpus
+  is recorded instead of the result: `nblm-import.py manifest` writes `06-sources.md` from
+  the live notebook, and `vault-lint.py` errors when a session declares the lane without it.
+
+```bash
+python3 scripts/nblm-import.py import --vault "$V" --session "$S" --notebook "$NB" \
+    --into "Ricerche/2026" --canvas .duel-vault/$S/artifacts/mind-map.json
+python3 scripts/nblm-import.py manifest --vault "$V" --session "$S" --notebook "$NB" \
+    --prompt "Report briefing-doc on <topic>"
+```
+
+Codex has no Google authentication in its sandbox, so Claude executes the plan's NotebookLM
+steps itself and hands Codex only the materialized files — the one documented exception to
+"Codex builds, Claude reviews". Full contract in
+[`references/notebooklm.md`](references/notebooklm.md).
+
 ## Install
 
 The skill directory must be named `duel-vault` — the name is load-bearing. It is the skill
@@ -92,6 +126,7 @@ clone directory is already correct.
 - [Claude Code](https://claude.com/claude-code) with this skill installed under `.claude/skills/duel-vault/`
 - [Codex CLI](https://github.com/openai/codex) available on `PATH` for Route B (full duet) tasks
 - Python 3.10+ for `scripts/` (stdlib only; PyYAML is used when present but is not required)
+- [`notebooklm-py`](https://github.com/teng-lin/notebooklm-py) on `PATH` and authenticated — only for sessions that open the NotebookLM lane
 - One or more Obsidian vaults on disk, each with at least a `CLAUDE.md`, registered under a shared `projects_root` in `~/.claude/duel-vault.config.json`
 
 ## Human checkpoints

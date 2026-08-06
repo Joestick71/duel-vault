@@ -175,6 +175,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "status": (enum_of("in-progress", "complete", "escalated"), True),
             "tags": (v_tags, True),
             "model": (v_str, False),
+            "notebooklm": (v_bool, False),
         },
         "tag_suffix": "moc",
         "sections": ["Phases"],
@@ -255,6 +256,21 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
         "tag_suffix": "final",
         "sections": ["Requirements outcome", "Token consumption", "Trail"],
     },
+    "sources": {
+        "label": "NotebookLM sources",
+        "fields": {
+            "project": (v_str, True),
+            "session": (v_str, True),
+            "phase": (enum_of("sources"), True),
+            "date": (v_date, True),
+            "notebook_id": (v_str, True),
+            "sources": (v_int, True),
+            "artifacts": (v_int, True),
+            "tags": (v_tags, True),
+        },
+        "tag_suffix": "notebooklm",
+        "sections": ["Sources", "Artifacts", "Prompts"],
+    },
     "route_a": {
         "label": "Route A session log",
         "fields": {
@@ -263,6 +279,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "route": (enum_of("A"), True),
             "date": (v_date, True),
             "skills_used": (v_list, True),
+            "notebooklm": (v_bool, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "session",
@@ -304,6 +321,8 @@ def classify(path: Path, session_dir: Path | None) -> str | None:
         return "review"
     if stem == "05-final-report":
         return "final"
+    if stem == "06-sources":
+        return "sources"
     if stem == "plan-disagreement":
         return "disagreement"
     if session_dir is None and ROUTE_A_RE.match(stem):
@@ -716,6 +735,7 @@ def check_session(
         by_kind.setdefault(kind, []).append(path)
 
     moc_paths = by_kind.get("moc", [])
+    moc_fm: dict = {}
     if not moc_paths:
         report.error("VD022", session_dir, None, "session folder has no `00 - <slug> MOC.md`")
         in_progress = True
@@ -725,7 +745,8 @@ def check_session(
                 "VD022", session_dir, None, f"session folder has {len(moc_paths)} MOC notes"
             )
         moc_data, _, _ = parse_frontmatter(moc_paths[0].read_text(encoding="utf-8", errors="replace"))
-        status = (moc_data or {}).get("status")
+        moc_fm = moc_data or {}
+        status = moc_fm.get("status")
         in_progress = str(status).strip() != "complete"
 
     for kind, paths in by_kind.items():
@@ -775,6 +796,26 @@ def check_session(
                 None,
                 "`05-final-report.md` exists but no `04-review-cycle-N.md` was written",
             )
+
+    # The NotebookLM lane and its provenance note are two halves of one fact: artifacts are
+    # not reproducible, so a session that ran the lane without recording its corpus cannot
+    # be audited at all.
+    lane_declared = moc_fm.get("notebooklm") is True
+    sources_notes = by_kind.get("sources", [])
+    if lane_declared and not sources_notes:
+        report.error(
+            "VD023",
+            session_dir,
+            None,
+            "MOC declares `notebooklm: true` but the session has no `06-sources.md`",
+        )
+    elif sources_notes and moc_paths and not lane_declared:
+        report.warn(
+            "VD023",
+            moc_paths[0],
+            None,
+            "`06-sources.md` exists but the MOC does not declare `notebooklm: true`",
+        )
 
     # Consensus rounds must alternate claude -> codex within each round.
     rounds: dict[int, set[str]] = {}
