@@ -148,6 +148,8 @@ def as_date_str(value: Any) -> str | None:
 
 def scan_route_b(session_dir: Path) -> Session | None:
     notes = {p.stem: p for p in session_dir.glob("*.md")}
+    if not notes:
+        return None  # not a session — an empty or unrelated folder under Sessions/
     moc_path = next((p for stem, p in notes.items() if MOC_RE.match(stem)), None)
 
     session = Session(slug=session_dir.name, path=session_dir, route="B", date="")
@@ -287,7 +289,11 @@ def aggregate(sessions: list[Session], max_items: int) -> dict:
         for f in all_findings
         if f.severity in ("BLOCKER", "MAJOR") and normalize_title(f.title) not in recurring_keys
     ]
-    high_severity.sort(key=lambda f: (f["date"], SEVERITY_RANK.get(f["severity"], 9)), reverse=True)
+    # Two stable passes: rank ascending (worst first) within a date, then date descending —
+    # a single reverse=True tuple sort would reverse the rank order too, putting MAJOR
+    # ahead of BLOCKER whenever two findings share a date.
+    high_severity.sort(key=lambda f: SEVERITY_RANK.get(f["severity"], 9))
+    high_severity.sort(key=lambda f: f["date"], reverse=True)
 
     # A word counts as a theme only if it appears in findings from >= 2 sessions,
     # which removes the need for a language-specific stopword list.

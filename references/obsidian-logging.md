@@ -307,8 +307,8 @@ tags: [duel-vault, duel-vault/notebooklm]
 |---|-------|------|--------|--------|
 
 ## Artifacts
-| # | Type | Status | Artifact ID |
-|---|------|--------|-------------|
+| # | Type | Title | Status | Artifact ID |
+|---|------|-------|--------|-------------|
 
 ## Prompts
 (every generation prompt, verbatim — artifacts are not reproducible, the inputs are all

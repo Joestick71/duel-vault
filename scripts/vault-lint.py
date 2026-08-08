@@ -32,14 +32,13 @@ from vault_common import (
     SESSION_NOTE_RE,
     SKIP_DIRS,
     fm_line,
+    lint_required_fields,
     live_lines,
     parse_frontmatter,
 )
 
 ERROR = "ERROR"
 WARN = "WARN"
-
-CONFIG_PATH = Path.home() / ".claude" / "duel-vault.config.json"
 
 
 # --------------------------------------------------------------------------
@@ -338,6 +337,12 @@ WIKILINK_RE = re.compile(r"(!?)\[\[([^\]\n|]+)(?:\|([^\]\n]*))?\]\]")
 MDLINK_RE = re.compile(r"(?<!!)\[[^\]\n]*\]\(([^)\s]+)")
 CALLOUT_RE = re.compile(r"^\s*>\s*\[!(?P<body>[^\]\n]*)\]")
 PLACEHOLDER_RE = re.compile(r"<[A-Za-z][A-Za-z0-9 _/|.,+#-]{0,40}>")
+
+# Inline HTML this shape also matches (`<br>`, `<div>`, …) — not template placeholders.
+HTML_INLINE_TAGS = {
+    "a", "b", "br", "code", "del", "div", "em", "hr", "i", "img", "ins",
+    "kbd", "mark", "p", "small", "span", "strong", "sub", "sup", "u", "wbr",
+}
 HEADING2_RE = re.compile(r"^##\s+(?P<title>.+?)\s*$")
 REQ_DECL_RE = re.compile(r"^#{2,4}\s*(?:R(?P<id>\d+))\b")
 REQ_REF_RE = re.compile(r"\bR(\d+)\b")
@@ -427,7 +432,7 @@ def check_note(
     """Lint a single note. Returns the parsed frontmatter (possibly empty)."""
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         report.error("VD000", path, None, f"cannot read file: {exc}")
         return {}
 
@@ -461,8 +466,31 @@ def check_note(
         session_in_progress=session_in_progress,
         check_sections=check_sections,
     )
+    if kind == "route_a":
+        _check_route_a_notebooklm(path, data, text, body_start, report)
     _check_filename_agreement(path, kind, data, text, report, session_dir)
     return data
+
+
+def _check_route_a_notebooklm(
+    path: Path, data: dict, text: str, body_start: int, report: Report
+) -> None:
+    """Route B pairs `notebooklm: true` with `06-sources.md` (see check_session). Route A has
+    no session folder to hold that note, so the manifest fragment is pasted straight into the
+    log — check for its `## Sources` heading instead."""
+    if data.get("notebooklm") is not True:
+        return
+    for _lineno, line in live_lines(text, from_line=body_start):
+        heading = HEADING2_RE.match(line)
+        if heading and heading.group("title").strip().lower().startswith("sources"):
+            return
+    report.error(
+        "VD023",
+        path,
+        None,
+        "frontmatter declares `notebooklm: true` but the note has no `## Sources` section "
+        "(paste the `nblm-import.py manifest --format block` fragment)",
+    )
 
 
 def _check_fields(
@@ -583,6 +611,9 @@ def _check_body(
         for match in PLACEHOLDER_RE.finditer(line):
             token = match.group(0)
             if re.fullmatch(r"<\d+>", token):
+                continue
+            tag_name = token.strip("<>/").split()[0].lower() if token.strip("<>/") else ""
+            if tag_name in HTML_INLINE_TAGS:
                 continue
             report.warn(
                 "VD031", path, lineno, f"unfilled template placeholder in body: {token}"
@@ -931,17 +962,6 @@ def lint_files(
         )
 
 
-def load_config_fields() -> list[str]:
-    if not CONFIG_PATH.is_file():
-        return []
-    try:
-        config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    fields = config.get("lint_required_fields", [])
-    return [f for f in fields if isinstance(f, str)]
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="vault-lint",
@@ -970,7 +990,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="print only the summary line")
     args = parser.parse_args(argv)
 
-    extra_fields = list(dict.fromkeys(load_config_fields() + args.require_field))
+    extra_fields = list(dict.fromkeys(lint_required_fields() + args.require_field))
     report = Report()
 
     try:

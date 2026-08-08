@@ -8,7 +8,9 @@ PyYAML raises a bare ValueError on frontmatter like `date: 2026-13-45`.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 try:  # PyYAML is nicer but not required
@@ -17,6 +19,26 @@ except Exception:  # pragma: no cover - depends on environment
     yaml = None
 
 SKIP_DIRS = {".git", ".obsidian", ".duel-vault", ".trash", "node_modules", "__pycache__"}
+
+CONFIG_PATH = Path.home() / ".claude" / "duel-vault.config.json"
+
+
+def load_config() -> dict:
+    """`~/.claude/duel-vault.config.json`, or `{}` if absent, unreadable, or not an object."""
+    if not CONFIG_PATH.is_file():
+        return {}
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def lint_required_fields() -> list[str]:
+    """`lint_required_fields` from the vault config — shared so vault-lint.py and
+    nblm-import.py never disagree on which fields a vault mandates."""
+    fields = load_config().get("lint_required_fields", [])
+    return [f for f in fields if isinstance(f, str)]
 
 FM_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
 
@@ -134,18 +156,20 @@ def fm_line(text: str, key: str) -> int | None:
 def live_lines(text: str, from_line: int = 1) -> list[tuple[int, str]]:
     """Lines outside fenced code blocks, with inline code spans stripped."""
     out: list[tuple[int, str]] = []
-    fence: str | None = None
+    fence_char: str | None = None
+    fence_len = 0
     for lineno, raw in enumerate(text.split("\n"), start=1):
         stripped = raw.strip()
         m = re.match(r"^(`{3,}|~{3,})", stripped)
         if m:
-            token = m.group(1)[0] * 3
-            if fence is None:
-                fence = token
-            elif stripped.startswith(fence):
-                fence = None
+            token = m.group(1)
+            if fence_char is None:
+                fence_char, fence_len = token[0], len(token)
+            # CommonMark: a fence only closes on the same character, at least as long.
+            elif token[0] == fence_char and len(token) >= fence_len:
+                fence_char = None
             continue
-        if fence is not None:
+        if fence_char is not None:
             continue
         if lineno < from_line:
             continue

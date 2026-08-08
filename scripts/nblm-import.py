@@ -36,9 +36,7 @@ from datetime import date as _date
 from pathlib import Path
 from typing import Any
 
-from vault_common import FM_RE, MOC_RE, parse_frontmatter
-
-CONFIG_PATH = Path.home() / ".claude" / "duel-vault.config.json"
+from vault_common import FM_RE, MOC_RE, ROUTE_A_RE, lint_required_fields, parse_frontmatter
 
 # Obsidian refuses these in filenames; NotebookLM titles contain them routinely.
 ILLEGAL_NAME_CHARS = re.compile(r'[\\/:*?"<>|#^\[\]]+')
@@ -71,21 +69,6 @@ TYPE_BY_STEM = {
 def fail(message: str, code: int = 2) -> int:
     print(f"nblm-import: {message}", file=sys.stderr)
     return code
-
-
-def load_config() -> dict:
-    if not CONFIG_PATH.is_file():
-        return {}
-    try:
-        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def required_fields() -> list[str]:
-    fields = load_config().get("lint_required_fields", [])
-    return [f for f in fields if isinstance(f, str)]
 
 
 def parse_kv(pairs: list[str]) -> dict[str, Any]:
@@ -165,8 +148,10 @@ def resolve_backlink(vault: Path, slug: str) -> str | None:
         return None
     sessions = vault / "Sessions"
     if sessions.is_dir():
-        for note in sorted(sessions.glob(f"*{slug}.md")):
-            return note.stem
+        for note in sorted(sessions.glob("*.md")):
+            m = ROUTE_A_RE.match(note.stem)
+            if m and m.group("slug") == slug:
+                return note.stem
     return None
 
 
@@ -196,6 +181,37 @@ class Context:
     force: bool
     dry_run: bool
     written: list[str] = field(default_factory=list)
+    used_stems: set[str] = field(default_factory=set)
+
+
+def reserve_stem(ctx: Context, base: str) -> str:
+    """A note/asset stem unique within this invocation.
+
+    Two files sharing a stem (same --title across a batch, or same source stem with
+    different suffixes) must not silently clobber each other's note even under --force,
+    which is meant for files left by a *previous* run, not our own batch's outputs.
+    """
+    stem = base
+    n = 2
+    while stem in ctx.used_stems:
+        stem = f"{base}-{n}"
+        n += 1
+    ctx.used_stems.add(stem)
+    return stem
+
+
+def merge_frontmatter(existing: dict[str, Any] | None, override: dict[str, Any]) -> dict[str, Any]:
+    """`override` (mandated fields, guaranteed tags) always wins; `existing` only fills gaps.
+
+    An artifact's own frontmatter must never be able to shadow a `--field` the operator
+    passed to satisfy the vault's mandated fields, or replace the guaranteed tag list.
+    """
+    data: dict[str, Any] = dict(existing) if existing else {}
+    existing_tags = data.get("tags")
+    data.update(override)
+    if isinstance(existing_tags, list):
+        data["tags"] = list(dict.fromkeys([*existing_tags, *override["tags"]]))
+    return data
 
 
 def note_frontmatter(ctx: Context, artifact_type: str, artifact_id: str | None) -> dict[str, Any]:
@@ -245,33 +261,30 @@ def import_markdown(ctx: Context, src: Path, dest_dir: Path, args: argparse.Name
     body = FM_RE.sub("", raw, count=1) if FM_RE.match(raw) else raw
 
     artifact_type = infer_type(src, args.artifact_type)
-    data = note_frontmatter(ctx, artifact_type, args.artifact_id)
-    if existing:
-        # The artifact's own frontmatter is the author's intent; ours only fills gaps.
-        for key, value in existing.items():
-            if key == "tags" and isinstance(value, list):
-                data["tags"] = list(dict.fromkeys([*value, *data["tags"]]))
-            else:
-                data[key] = value
+    data = merge_frontmatter(existing, note_frontmatter(ctx, artifact_type, args.artifact_id))
 
     title = args.title or (existing or {}).get("title") or src.stem.replace("-", " ").title()
     heading = f"# {title}\n" if not re.match(r"^\s*#\s", body.lstrip("\n")) else ""
     text = dump_frontmatter(data) + "\n" + heading + body.strip() + "\n" + provenance(
         ctx, artifact_type, args.artifact_id
     )
-    return write_text(ctx, dest_dir / f"{safe_stem(args.title or src.stem)}.md", text)
+    stem = reserve_stem(ctx, safe_stem(args.title or src.stem))
+    return write_text(ctx, dest_dir / f"{stem}.md", text)
 
 
 def import_asset(
     ctx: Context, src: Path, dest_dir: Path, assets_dir: Path, args: argparse.Namespace
 ) -> int:
     artifact_type = infer_type(src, args.artifact_type)
-    stem = safe_stem(args.title or src.stem)
+    stem = reserve_stem(ctx, safe_stem(args.title or src.stem))
     asset_name = f"{stem}{src.suffix.lower()}"
     asset_path = assets_dir / asset_name
+    note_path = dest_dir / f"{stem}.md"
 
-    if asset_path.exists() and not ctx.force:
-        return fail(f"{asset_path} already exists (use --force to overwrite)", 1)
+    for target in (asset_path, note_path):
+        if target.exists() and not ctx.force:
+            return fail(f"{target} already exists (use --force to overwrite)", 1)
+
     if ctx.dry_run:
         print(f"[dry-run] would copy {src} -> {asset_path}")
     else:
@@ -286,7 +299,7 @@ def import_asset(
         + f"\n# {title}\n\n{embed}[[{asset_name}]]\n"
         + provenance(ctx, artifact_type, args.artifact_id)
     )
-    return write_text(ctx, dest_dir / f"{stem}.md", text)
+    return write_text(ctx, note_path, text)
 
 
 def import_canvas(ctx: Context, src: Path, dest_dir: Path, args: argparse.Namespace) -> int:
@@ -305,10 +318,12 @@ def import_canvas(ctx: Context, src: Path, dest_dir: Path, args: argparse.Namesp
             1,
         )
 
-    stem = safe_stem(args.title or src.stem)
+    stem = reserve_stem(ctx, safe_stem(args.title or src.stem))
     canvas_path = dest_dir / f"{stem}.canvas"
-    if canvas_path.exists() and not ctx.force:
-        return fail(f"{canvas_path} already exists (use --force to overwrite)", 1)
+    note_path = dest_dir / f"{stem}.md"
+    for target in (canvas_path, note_path):
+        if target.exists() and not ctx.force:
+            return fail(f"{target} already exists (use --force to overwrite)", 1)
 
     canvas = build_canvas(root)
     if ctx.dry_run:
@@ -324,7 +339,7 @@ def import_canvas(ctx: Context, src: Path, dest_dir: Path, args: argparse.Namesp
         + f"\n# {title}\n\n![[{stem}.canvas]]\n"
         + provenance(ctx, "mind-map", args.artifact_id)
     )
-    return write_text(ctx, dest_dir / f"{stem}.md", text)
+    return write_text(ctx, note_path, text)
 
 
 # --------------------------------------------------------------------------
@@ -477,7 +492,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     except ValueError as exc:
         return fail(str(exc))
 
-    missing = [f for f in required_fields() if f not in extra]
+    missing = [f for f in lint_required_fields() if f not in extra]
     if missing:
         return fail(
             "this vault mandates frontmatter field(s) "
@@ -540,15 +555,23 @@ def cmd_import(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
+FLAG_ERROR_RE = re.compile(
+    r"unrecognized|unrecognised|no such option|unknown (option|flag)|invalid choice", re.I
+)
+
+
 def run_cli(subcommand: list[str], notebook: str) -> tuple[dict | None, str]:
     """`notebooklm <sub> --json` for one notebook, addressed explicitly.
 
-    The flag spelling differs across subcommands (`--notebook` vs `-n`), so both are tried
-    before giving up. Never falls back to the CLI's stored context: this lane runs
-    concurrent agents and a shared context is exactly what they overwrite.
+    The flag spelling differs across subcommands (`--notebook` vs `-n`). Only a failure that
+    looks like an unrecognised flag justifies retrying with the other spelling — retrying on
+    every failure would double the wall clock and the rate-limit exposure of a genuine error
+    (stale auth, bad notebook id). Never falls back to the CLI's stored context: this lane
+    runs concurrent agents and a shared context is exactly what they overwrite.
     """
+    flags = ("--notebook", "-n")
     last = ""
-    for flag in ("--notebook", "-n"):
+    for i, flag in enumerate(flags):
         cmd = ["notebooklm", *subcommand, flag, notebook, "--json"]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -558,19 +581,31 @@ def run_cli(subcommand: list[str], notebook: str) -> tuple[dict | None, str]:
             return None, f"`{' '.join(cmd)}` timed out after 120s"
         if proc.returncode == 0:
             try:
-                return json.loads(proc.stdout), ""
+                parsed = json.loads(proc.stdout)
             except ValueError:
                 return None, f"`{' '.join(cmd)}` returned non-JSON output: {proc.stdout[:200]}"
+            if not isinstance(parsed, dict):
+                return None, (
+                    f"`{' '.join(cmd)}` returned {type(parsed).__name__}, expected a JSON object"
+                )
+            return parsed, ""
         last = (proc.stderr or proc.stdout).strip()[:400]
+        looks_like_flag_error = proc.returncode == 2 or FLAG_ERROR_RE.search(last)
+        if i < len(flags) - 1 and looks_like_flag_error:
+            continue
+        break
     return None, last or "unknown CLI failure"
 
 
 def load_listing(explicit: Path | None, subcommand: list[str], notebook: str) -> tuple[dict, str]:
     if explicit is not None:
         try:
-            return json.loads(explicit.expanduser().read_text(encoding="utf-8")), ""
+            parsed = json.loads(explicit.expanduser().read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             return {}, f"cannot read {explicit}: {exc}"
+        if not isinstance(parsed, dict):
+            return {}, f"{explicit} contains {type(parsed).__name__}, expected a JSON object"
+        return parsed, ""
     data, err = run_cli(subcommand, notebook)
     return (data or {}), err
 
@@ -609,13 +644,16 @@ def cmd_manifest(args: argparse.Namespace) -> int:
         extra = parse_kv(args.field)
     except ValueError as exc:
         return fail(str(exc))
-    missing = [f for f in required_fields() if f not in extra]
-    if missing:
-        return fail(
-            "this vault mandates frontmatter field(s) "
-            + ", ".join(f"`{m}`" for m in missing)
-            + " — pass them with --field k=v"
-        )
+    if args.format == "note":
+        # In block format there is no frontmatter to carry these fields into — the
+        # Route A log that receives the pasted fragment carries them instead.
+        missing = [f for f in lint_required_fields() if f not in extra]
+        if missing:
+            return fail(
+                "this vault mandates frontmatter field(s) "
+                + ", ".join(f"`{m}`" for m in missing)
+                + " — pass them with --field k=v"
+            )
 
     src_data, src_err = load_listing(args.sources_json, ["source", "list"], args.notebook)
     art_data, art_err = load_listing(args.artifacts_json, ["artifact", "list"], args.notebook)
@@ -624,9 +662,21 @@ def cmd_manifest(args: argparse.Namespace) -> int:
         return fail(f"could not read the notebook's sources: {src_err}", 1)
     if art_err:
         return fail(f"could not read the notebook's artifacts: {art_err}", 1)
+    if "sources" not in src_data or not isinstance(src_data["sources"], list):
+        return fail(
+            "`source list --json` response has no `sources` list — shape: "
+            f"{sorted(src_data)[:8]}",
+            1,
+        )
+    if "artifacts" not in art_data or not isinstance(art_data["artifacts"], list):
+        return fail(
+            "`artifact list --json` response has no `artifacts` list — shape: "
+            f"{sorted(art_data)[:8]}",
+            1,
+        )
 
-    sources = [s for s in src_data.get("sources", []) if isinstance(s, dict)]
-    artifacts = [a for a in art_data.get("artifacts", []) if isinstance(a, dict)]
+    sources = [s for s in src_data["sources"] if isinstance(s, dict)]
+    artifacts = [a for a in art_data["artifacts"] if isinstance(a, dict)]
     today = args.date or _date.today().isoformat()
     title = args.title or src_data.get("notebook_title") or args.session
 
