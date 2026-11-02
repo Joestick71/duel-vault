@@ -14,6 +14,9 @@ priors a new session should start with:
   point arbitrated in session 3 is not re-litigated in session 9
 - **Build deviations already seen** (`> [!warning]` from build logs) — what Codex tends to do
 - **Residual issues past sessions accepted** — MINORs surviving in each session's last review cycle
+- **Model-tier escalations** (`> [!escalation]` from build logs, review cycles and Route A
+  logs) — steps a cheap tier could not finish (`references/model-tiers.md`). A kind of step
+  that keeps escalating is a reason to *propose* starting it on the higher tier at triage
 - **Process stats** — median consensus rounds, how often a fix cycle was needed, token medians
 
 ## Invocation

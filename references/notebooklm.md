@@ -81,12 +81,15 @@ immediately; a background agent waits for it and downloads the result.**
 ```
 1. main thread:  notebooklm generate report --notebook $NB --json     → task_id
 2. main thread:  record {artifact, task_id, status: pending} in session.json
-3. main thread:  Agent(subagent_type="general-purpose", run_in_background=true, prompt=…)
+3. main thread:  Agent(subagent_type="general-purpose", model=<models.claude_mechanical>, run_in_background=true, prompt=…)
 4. main thread:  continues the session (interview, planning, other steps)
 5. agent done:   the task notification arrives → materialize (see below)
 ```
 
-The agent prompt must be self-contained and narrow:
+The agent runs on the **mechanical tier** (`models.claude_mechanical`, default `haiku` —
+`references/model-tiers.md`): waiting and downloading is pure command execution, and the
+main thread's model would spend its tokens polling. The prompt must be self-contained and
+narrow:
 
 ```
 Wait for NotebookLM artifact <artifact_id> in notebook <notebook_id> and download it.
@@ -215,13 +218,14 @@ NotebookLM exposes no token counts. The rule "never invent numbers" holds, so th
 accounted in **operations**, not tokens, as its own row of the final report's table:
 
 ```markdown
-| Phase | Codex (measured) | Claude (est.) | NotebookLM |
-|-------|------------------|---------------|------------|
-| 3 — Build | 12400 | ~8200 | 3 ops (1 report, 1 audio, 6 sources) · tokens unavailable |
+| Phase | Codex (measured) | Claude main (est.) | Claude delegated (measured) | NotebookLM |
+|-------|------------------|--------------------|-----------------------------|------------|
+| 3 — Build | 12400 | ~8200 | 9100 | 3 ops (1 report, 1 audio, 6 sources) · tokens unavailable |
 ```
 
-`tokens_codex` / `tokens_claude_est` in the frontmatter stay what they always were. The
-NotebookLM figure is a count of operations and never a token estimate.
+`tokens_codex` / `tokens_claude_est` in the frontmatter stay what they always were; the
+wait-and-download agents' usage goes under `tokens_claude_delegated` like any other
+subagent's. The NotebookLM figure is a count of operations and never a token estimate.
 
 ## Failure modes
 
@@ -246,3 +250,7 @@ session on retries.
   non-reproducible one. The priors block stays exactly as it is.
 - **A default.** Every session that opens this lane pays authentication, wall clock and an
   external dependency. Sessions that do not need a source corpus must not pay for one.
+- **Confused with the progress notebook.** Every project also has a separate notebook that
+  holds its progress snapshot (`session-recovery.md`). That notebook only receives text
+  sources from `progress-sync.py`, never generates anything, and is never used as a
+  session's lane notebook — nor the other way round.

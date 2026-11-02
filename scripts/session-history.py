@@ -5,7 +5,8 @@ The duel-vault workflow writes richly structured session notes and then never
 reads them again. This script closes that loop: it scans prior sessions and
 extracts what a new session should know before it starts — findings that keep
 recurring, decisions already arbitrated, deviations Codex has made before, and
-the residual issues a past session chose to accept.
+the residual issues a past session chose to accept, and the steps a cheap model
+tier could not finish and had to hand up a tier.
 
 The extraction is entirely mechanical (callout syntax, `F<n> · SEVERITY ·`
 headings, frontmatter fields), so it works whatever language the notes are
@@ -100,6 +101,7 @@ class Session:
     decisions: list[Callout] = field(default_factory=list)
     deviations: list[Callout] = field(default_factory=list)
     residuals: list[Finding] = field(default_factory=list)
+    escalations: list[Callout] = field(default_factory=list)
     last_cycle: int = 0
 
 
@@ -109,7 +111,7 @@ def read(path: Path) -> tuple[dict, list[tuple[int, str]]]:
     except OSError:
         return {}, []
     data, _error, body_start = parse_frontmatter(text)
-    return (data or {}), live_lines(text, from_line=body_start)
+    return (data or {}), live_lines(text, from_line=body_start, keep_code=True)
 
 
 def extract_callouts(lines: list[tuple[int, str]], wanted: set[str]) -> list[tuple[str, str]]:
@@ -171,8 +173,9 @@ def scan_route_b(session_dir: Path) -> Session | None:
 
     if "03-build-log" in notes:
         _data, lines = read(notes["03-build-log"])
-        for _t, text in extract_callouts(lines, {"warning"}):
-            session.deviations.append(Callout("warning", text, session.slug, "03-build-log"))
+        for ctype, text in extract_callouts(lines, {"warning", "escalation"}):
+            target = session.deviations if ctype == "warning" else session.escalations
+            target.append(Callout(ctype, text, session.slug, "03-build-log"))
 
     if "05-final-report" in notes:
         data, _lines = read(notes["05-final-report"])
@@ -188,6 +191,8 @@ def scan_route_b(session_dir: Path) -> Session | None:
         cycle = int(m.group("cycle"))
         session.last_cycle = max(session.last_cycle, cycle)
         _data, lines = read(path)
+        for _t, text in extract_callouts(lines, {"escalation"}):
+            session.escalations.append(Callout("escalation", text, session.slug, stem))
         for _lineno, line in lines:
             found = FINDING_RE.match(line)
             if found:
@@ -227,6 +232,8 @@ def scan_route_a(note: Path) -> Session:
         session.decisions.append(Callout("decision", text, session.slug, note.stem))
     for _t, text in extract_callouts(lines, {"warning"}):
         session.deviations.append(Callout("warning", text, session.slug, note.stem))
+    for _t, text in extract_callouts(lines, {"escalation"}):
+        session.escalations.append(Callout("escalation", text, session.slug, note.stem))
     return session
 
 
@@ -351,6 +358,7 @@ def aggregate(sessions: list[Session], max_items: int) -> dict:
         "themes": themes[:max_items],
         "settled_decisions": collect("decisions"),
         "past_deviations": collect("deviations"),
+        "tier_escalations": collect("escalations"),
         "accepted_residuals": sorted(
             residual_buckets.values(), key=lambda b: -len(b["sessions"])
         )[:max_items],
@@ -362,6 +370,7 @@ def aggregate(sessions: list[Session], max_items: int) -> dict:
             "sessions_needing_fix_cycle": sum(1 for f in fixes if f > 0),
             "sessions_with_fix_data": len(fixes),
             "codex_tokens_median": int(statistics.median(tokens)) if tokens else None,
+            "sessions_with_escalation": sum(1 for s in sessions if s.escalations),
         },
     }
 
@@ -439,6 +448,16 @@ def render(summary: dict) -> str:
             out.append(f"- {item['text']} {provenance(item['sessions'])}")
         out.append("")
 
+    if summary["tier_escalations"]:
+        out.append("### Model-tier escalations already seen")
+        out.append(
+            "_Steps a cheap tier could not finish. If one kind of step keeps escalating, "
+            "propose starting it on the higher tier — the user decides._"
+        )
+        for item in summary["tier_escalations"]:
+            out.append(f"- {item['text']} {provenance(item['sessions'], item['note'])}")
+        out.append("")
+
     if summary["accepted_residuals"]:
         out.append("### Residual issues past sessions chose to accept")
         for item in summary["accepted_residuals"]:
@@ -461,6 +480,11 @@ def render(summary: dict) -> str:
         )
     if stats["codex_tokens_median"] is not None:
         bits.append(f"Codex tokens median {stats['codex_tokens_median']:,}")
+    if stats["sessions_with_escalation"]:
+        bits.append(
+            f"tier escalation in {stats['sessions_with_escalation']}/"
+            f"{summary['sessions_scanned']} sessions"
+        )
     out.append("### Process stats")
     out.append(" · ".join(bits))
     out.append("")

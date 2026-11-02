@@ -51,7 +51,7 @@ ROUTE_A_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2}) (?P<slug>.+)$")
 
 SESSION_NOTE_RE = re.compile(
     r"^(00 - .+ MOC|01-requirements|02-plan|03-build-log"
-    r"|04-review-cycle-\d+|05-final-report|06-sources|plan-disagreement"
+    r"|04-review-cycle-\d+|05-final-report|06-sources|07-activity-log|plan-disagreement"
     r"|plan-round-\d+-(claude|codex))$"
 )
 
@@ -153,8 +153,13 @@ def fm_line(text: str, key: str) -> int | None:
     return None
 
 
-def live_lines(text: str, from_line: int = 1) -> list[tuple[int, str]]:
-    """Lines outside fenced code blocks, with inline code spans stripped."""
+def live_lines(text: str, from_line: int = 1, keep_code: bool = False) -> list[tuple[int, str]]:
+    """Lines outside fenced code blocks, with inline code spans stripped.
+
+    The linter strips spans so example snippets never produce findings. Readers that
+    quote the prose back (session-history) pass `keep_code=True`: a callout like
+    "Step 4: `mini` → `full`" is meaningless once its code spans are gone.
+    """
     out: list[tuple[int, str]] = []
     fence_char: str | None = None
     fence_len = 0
@@ -173,5 +178,5 @@ def live_lines(text: str, from_line: int = 1) -> list[tuple[int, str]]:
             continue
         if lineno < from_line:
             continue
-        out.append((lineno, re.sub(r"`[^`\n]*`", "", raw)))
+        out.append((lineno, raw if keep_code else re.sub(r"`[^`\n]*`", "", raw)))
     return out

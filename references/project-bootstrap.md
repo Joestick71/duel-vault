@@ -11,9 +11,26 @@ Persistent config: `~/.claude/duel-vault.config.json`
   "projects_root": "<absolute path to the directory containing the vaults>",
   "default_fix_cycles": 3,
   "max_consensus_rounds": 5,
-  "lint_required_fields": []
+  "lint_required_fields": [],
+  "budgets": { "codex": null, "claude_main": null, "claude_delegated": null, "warn_ratio": 0.8 },
+  "budgets_by_project": {},
+  "notify": { "command": null, "poll_seconds": 900 },
+  "progress_notebook": { "enabled": true, "title": "{project} — avanzamento duel-vault" },
+  "models": {
+    "claude_mechanical": "haiku",
+    "claude_executor": "sonnet",
+    "codex_plan": null,
+    "codex_build": null,
+    "codex_build_effort": null
+  }
 }
 ```
+
+`models` assigns each execution tier its model — see `references/model-tiers.md`. Missing keys fall back to the defaults shown; the two Codex models have no default and are settled at the Route B preflight. An existing config without a `models` block is valid: add it the first time a value has to be saved.
+
+`budgets` / `budgets_by_project` (per-session token caps, asked at a project's first Route B; `null` = track only), `notify` (how the user is told a Claude limit has reset) and `progress_notebook` (the project's NotebookLM notebook for progress snapshots) are described in `references/session-recovery.md`.
+
+**On first run on a machine**, after creating the config, offer to install the `StopFailure` hook that pauses the session and schedules the reset notification when Claude runs out of quota (`session-state.py install-hook --dry-run`, then without `--dry-run` once the user agrees — it edits `~/.claude/settings.json`). An optional `probes` object overrides the command `session-state.py wait` uses to test whether a resource is back.
 
 If the file is missing, ask the user for the projects root (the directory whose subdirectories are Obsidian vaults), verify it exists, and save the config.
 
@@ -40,7 +57,7 @@ Distill what you read into a short brief you keep in working memory and inject (
 - **Identity:** what the project is, for whom, one line.
 - **Language:** the operating language for notes, filenames, frontmatter (CLAUDE.md decides — never assume English).
 - **Conventions that bind this task:** naming, frontmatter fields, folder targets, format preferences (callouts, wikilinks, dark-theme charts, …).
-- **Available tools:** project skills + global skills the CLAUDE.md lists, each with when-to-use.
+- **Available tools:** project skills + global skills the CLAUDE.md lists, each with when-to-use — and, for each, the absolute path of its `SKILL.md`: an executor subagent reads the skill from there (`references/model-tiers.md`), it does not inherit what you loaded.
 - **End-of-session duties:** indices to update, memory files, commit/push requirements.
 - **State hooks:** where in Home.md / indices the new work must be linked.
 

@@ -171,9 +171,10 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "session": (v_str, True),
             "type": (enum_of("duel-vault-moc"), True),
             "date": (v_date, True),
-            "status": (enum_of("in-progress", "complete", "escalated"), True),
+            "status": (enum_of("in-progress", "paused", "complete", "escalated"), True),
             "tags": (v_tags, True),
             "model": (v_str, False),
+            "model_build": (v_str, False),
             "notebooklm": (v_bool, False),
         },
         "tag_suffix": "moc",
@@ -189,6 +190,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "approved_by_user": (v_bool, True),
             "tokens_codex": (v_tokens, True),
             "tokens_claude_est": (v_tokens, True),
+            "tokens_claude_delegated": (v_tokens, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "interview",
@@ -206,6 +208,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "approved_by_user": (v_bool, True),
             "tokens_codex": (v_tokens, True),
             "tokens_claude_est": (v_tokens, True),
+            "tokens_claude_delegated": (v_tokens, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "plan",
@@ -220,6 +223,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "date": (v_date, True),
             "tokens_codex": (v_tokens, True),
             "tokens_claude_est": (v_tokens, True),
+            "tokens_claude_delegated": (v_tokens, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "build",
@@ -235,6 +239,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "date": (v_date, True),
             "tokens_codex": (v_tokens, True),
             "tokens_claude_est": (v_tokens, True),
+            "tokens_claude_delegated": (v_tokens, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "review",
@@ -250,6 +255,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "fix_cycles_used": (v_int, True),
             "tokens_codex_total": (v_tokens, True),
             "tokens_claude_est_total": (v_tokens, True),
+            "tokens_claude_delegated_total": (v_tokens, False),
             "tags": (v_tags, True),
         },
         "tag_suffix": "final",
@@ -270,6 +276,20 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
         "tag_suffix": "notebooklm",
         "sections": ["Sources", "Artifacts", "Prompts"],
     },
+    "activity": {
+        "label": "activity log",
+        "fields": {
+            "project": (v_str, True),
+            "session": (v_str, True),
+            "phase": (enum_of("activity"), True),
+            "date": (v_date, True),
+            "events": (v_int, True),
+            "status": (v_str, False),
+            "tags": (v_tags, True),
+        },
+        "tag_suffix": "activity",
+        "sections": ["Timeline", "Decisions", "Changes", "Tokens"],
+    },
     "route_a": {
         "label": "Route A session log",
         "fields": {
@@ -278,6 +298,7 @@ NOTE_SPECS: dict[str, dict[str, Any]] = {
             "route": (enum_of("A"), True),
             "date": (v_date, True),
             "skills_used": (v_list, True),
+            "executor": (v_str, False),
             "notebooklm": (v_bool, False),
             "tags": (v_tags, True),
         },
@@ -322,6 +343,8 @@ def classify(path: Path, session_dir: Path | None) -> str | None:
         return "final"
     if stem == "06-sources":
         return "sources"
+    if stem == "07-activity-log":
+        return "activity"
     if stem == "plan-disagreement":
         return "disagreement"
     if session_dir is None and ROUTE_A_RE.match(stem):

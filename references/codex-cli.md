@@ -15,8 +15,21 @@ Confirm from the help output:
 3. Sandbox/approval flags (expected: `--sandbox read-only|workspace-write|danger-full-access`, and/or `--full-auto`)
 4. A way to capture the final message (expected: `--output-last-message <file>`; if absent, capture stdout)
 5. Working-directory flag (expected: `-C <dir>` / `--cd <dir>`)
+6. Config-override flag (expected: `-c key=value` / `--config key=value`) — used to set the builder's reasoning effort (`model_reasoning_effort`). If it is absent, or the installed version rejects the key, drop the effort setting, keep `codex_build_effort` unused for this session, and note it in the log.
 
 If any differ, adapt the patterns below to what the help actually says and note the adaptation in the session log.
+
+## Two models, two jobs
+
+Route B runs Codex in two roles with different price/quality needs (`references/model-tiers.md`):
+
+| Variable | Config key | Used for | Recommend |
+|----------|------------|----------|-----------|
+| `$PLAN_MODEL` | `models.codex_plan` | Phase 2 critique; escalated build/fix steps | the strongest model on the subscription |
+| `$BUILD_MODEL` | `models.codex_build` | Phase 3 build steps; Phase 4 fix cycles | a cheaper, faster model |
+| `$BUILD_EFFORT` | `models.codex_build_effort` | reasoning effort for build/fix (optional) | `medium`; `low` for mechanical plans |
+
+Resolve them at preflight. When the config has them, confirm in one line ("Codex: critica `<plan>`, build `<build>` · effort `<e>` — ok?"); when it doesn't, ask and save the answer. Never choose silently.
 
 ## Listing available models
 
@@ -25,24 +38,32 @@ If any differ, adapt the patterns below to what the help actually says and note 
 2. Check `~/.codex/config.toml` for a configured `model`.
 3. Try the model the user names; if Codex rejects it, show the error and ask again.
 
+Run the token-capture check below once per model: both must be confirmed to work before the session relies on them.
+
 ## Standard invocation patterns
 
 **Plan critique (Phase 2 — must not modify files):**
 ```bash
-codex exec -m "$MODEL" --sandbox read-only \
+codex exec -m "$PLAN_MODEL" --sandbox read-only \
   --output-last-message "$VAULT/.duel-vault/$SESSION/plan-round-${N}-codex.md" \
   "$(cat "$VAULT"/.duel-vault/$SESSION/prompts/plan-round-${N}.txt)"
 ```
 
 **Build step (Phase 3 — needs write access):**
 ```bash
-codex exec -m "$MODEL" --sandbox workspace-write --full-auto \
+EFFORT_ARGS=()
+[ -n "$BUILD_EFFORT" ] && EFFORT_ARGS=(-c "model_reasoning_effort=$BUILD_EFFORT")
+codex exec -m "$BUILD_MODEL" "${EFFORT_ARGS[@]}" --sandbox workspace-write --full-auto \
   -C "$PROJECT_DIR" \
   --output-last-message "$VAULT/.duel-vault/$SESSION/build-step-${K}-codex.md" \
   "$(cat "$VAULT"/.duel-vault/$SESSION/prompts/build-step-${K}.txt)"
 ```
 
+(An array, not `${VAR:+…}`: it expands to nothing when unset and splits correctly in both bash and zsh.)
+
 **Fix cycle (Phase 4 loop-back):** same as build step, prompt = fix-brief.
+
+**Escalated step or fix:** same as build step with `-m "$PLAN_MODEL"` and **no** `EFFORT_ARGS` — the escalation exists to spend more, not less. Save the output as `build-step-${K}-escalated-codex.md` so the cheap attempt's output stays on disk next to it.
 
 ## Prompt construction rules
 
@@ -56,16 +77,25 @@ codex exec -m "$MODEL" --sandbox workspace-write --full-auto \
 Codex reports token usage, but where it reports it varies by version. At preflight, determine which of these works on the installed version, in order of preference, and record the chosen method in `session.json` (`"token_capture": "..."`):
 
 1. **JSON/experimental output mode** — check `codex exec --help` for a `--json` or similar flag that emits structured events; usage events contain exact `input_tokens` / `output_tokens`. Most reliable when available.
-2. **Stdout summary** — recent versions print a usage line at the end of `codex exec` output (e.g. `tokens used: N`). Since raw stdout is already saved under `<vault>/.duel-vault/<session>/raw/`, grep it per invocation (pattern like `grep -iE 'tokens? used|token usage' raw/<file>`). Verify the exact wording on this installation during preflight with a trivial call (e.g. `codex exec -m "$MODEL" --sandbox read-only "Reply with the single word: ok"`), and note the pattern.
+2. **Stdout summary** — recent versions print a usage line at the end of `codex exec` output (e.g. `tokens used: N`). Since raw stdout is already saved under `<vault>/.duel-vault/<session>/raw/`, grep it per invocation (pattern like `grep -iE 'tokens? used|token usage' raw/<file>`). Verify the exact wording on this installation during preflight with a trivial call (e.g. `codex exec -m "$BUILD_MODEL" --sandbox read-only "Reply with the single word: ok"`, then the same with `$PLAN_MODEL`), and note the pattern.
 3. **Session logs fallback** — Codex writes session files under `~/.codex/sessions/` (JSONL). Match the most recent file to your invocation by timestamp and extract usage fields from its records.
 
 If none of the three works, set `"token_capture": "unavailable"`, warn the user once at the end of Phase 0, and record `"unavailable"` per invocation as per SKILL.md rules.
 
-Per invocation, append to `tokens.json` under the current phase: `{ "invocation": "<id>", "input": N, "output": N, "total": N }` (or `"unavailable"`).
+Per invocation, record it with `scripts/session-log.py invocation` — never by editing `tokens.json` by hand. One call writes the journal event, the `tokens.json` entry (with phase, resource and model, which keeps the critic/builder split recoverable) and evaluates the token budget:
+
+```bash
+python3 scripts/session-log.py invocation --vault "$VAULT" --session "$SESSION" \
+  --resource codex --model "$BUILD_MODEL" --effort "$BUILD_EFFORT" --id "build-step-$K" \
+  --step "$K" --status ok --input N --output N --total N        # or --total unavailable
+```
+
+Subagents are recorded the same way with `--resource claude_delegated`, so Codex and Claude figures never mix. See `references/session-journal.md`.
 
 ## Robustness
 
-- Wrap each invocation with a timeout (e.g. `timeout 900 codex exec ...`) and check the exit code.
-- On non-zero exit: log stderr, retry once. On second failure: stop and surface to the user.
+- Wrap each invocation with a timeout (e.g. `timeout 900 codex exec ...`) and check the exit code. Capture stderr to `raw/<id>.stderr` — the next step needs it. (`timeout` is GNU coreutils; on macOS it is `gtimeout` from Homebrew, or skip it and rely on the Bash tool's own timeout.)
+- On non-zero exit: **first** `python3 scripts/session-state.py limit --vault "$VAULT" --session "$SESSION" --resource codex --stderr-file raw/<id>.stderr`. Exit 0 means a usage or rate limit: the session is paused with its reset time — do not retry; log the invocation `--status limit` and follow `references/session-recovery.md` (background `wait`, then `resume`). Exit 1 means an ordinary error: retry once; on second failure, stop and surface it to the user.
+- Before a long invocation, `session-log.py invocation ... --status started` and `session-state.py set --pending-add codex:<id>`: if the session is cut off mid-call, the record shows what was in flight.
 - Verify claimed outputs: after a build step, check with `ls`/`test -f` that the files Codex says it wrote actually exist. Trust but verify.
 - Keep raw stdout of every invocation in `<vault>/.duel-vault/<session>/raw/` for debugging; only the distilled result goes to the vault log.

@@ -89,6 +89,8 @@ provenance — `06-sources.md` and its `notebooklm: true` counterpart on the MOC
 | `VD041` | ERROR | a note references an `R#` that does not exist in `01-requirements.md` |
 | `VD042` | WARN | a requirement is missing from `05-final-report.md` |
 
+The generated `07-activity-log.md` is a known note kind (`phase: activity`, `events`, tag `duel-vault/activity`) and is linted like the others; the MOC accepts `status: paused`. The journal it is rendered from has its own gate, `session-log.py verify` (`references/session-journal.md`).
+
 Requirement coverage is matched on bare `R<n>` tokens, so it works regardless of the
 language the notes are written in. Fenced code blocks and inline code spans are excluded
 from every body scan, so example snippets never produce findings.
