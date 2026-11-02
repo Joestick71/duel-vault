@@ -58,6 +58,11 @@ SESSION_NOTE_RE = re.compile(
 
 def scalar(raw: str) -> Any:
     val = raw.strip()
+    if val.startswith('"'):
+        try:
+            return json.loads(val)
+        except ValueError:
+            pass
     if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
         return val[1:-1]
     if re.fullmatch(r"-?\d+", val):
@@ -99,7 +104,10 @@ def mini_yaml(block: str) -> tuple[dict, list[str]]:
             data[key] = []
         elif val.startswith("[") and val.endswith("]"):
             inner = val[1:-1].strip()
-            data[key] = [scalar(x) for x in inner.split(",") if x.strip()] if inner else []
+            try:
+                data[key] = json.loads(val)
+            except ValueError:
+                data[key] = [scalar(x) for x in inner.split(",") if x.strip()] if inner else []
         else:
             data[key] = scalar(val)
     return data, bad

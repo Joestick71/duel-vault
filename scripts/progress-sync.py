@@ -87,6 +87,14 @@ def slugify(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower() or "project"
 
 
+def summary_stem(slug: str) -> str:
+    # Keep existing simple names; preserve identity when normalisation is lossy.
+    normal = slugify(slug)
+    if normal == slug:
+        return normal
+    return f"{normal[:80]}.{hashlib.sha256(slug.encode('utf-8')).hexdigest()[:16]}"
+
+
 # --------------------------------------------------------------------------
 # notebooklm CLI
 # --------------------------------------------------------------------------
@@ -425,7 +433,7 @@ def cmd_push(a: argparse.Namespace) -> int:
         done = closed.get("session")
         if closed.get("status") not in ("complete", "abandoned") or done in meta["session_sources"]:
             continue
-        spath = progress_dir(vault) / "sessions" / f"duel-vault-session-{slugify(done)}.md"
+        spath = progress_dir(vault) / "sessions" / f"duel-vault-session-{summary_stem(done)}.md"
         write_text_atomic(spath, render_session_summary(vault, done))
         summaries[done] = spath
         if len(summaries) >= 10:
@@ -497,8 +505,37 @@ def restore(vault: Path, text: str) -> int:
     if data is None:
         warn("the snapshot has no readable machine state block — nothing restored")
         return EXIT_FAIL
+    states = data.get("open_sessions")
+    if data.get("schema") != SCHEMA or not isinstance(states, list):
+        warn("unsupported snapshot schema or invalid open_sessions list — nothing restored")
+        return EXIT_FAIL
+    # Validate the entire remote payload before creating any local session.
+    seen = set()
+    for state in states:
+        if not isinstance(state, dict) or not isinstance(state.get("session"), str):
+            warn("invalid session in snapshot — nothing restored")
+            return EXIT_FAIL
+        slug = state["session"]
+        try:
+            check_slug(slug)
+        except SystemExit:
+            warn("invalid session slug in snapshot — nothing restored")
+            return EXIT_FAIL
+        if (slug in seen or state.get("schema") != SCHEMA
+                or state.get("status") not in OPEN_STATUSES
+                or state.get("route") not in ("A", "B")
+                or not isinstance(state.get("budgets", {}), dict)
+                or not isinstance(state.get("models", {}), dict)
+                or (state.get("blocked_on") is not None
+                    and not isinstance(state["blocked_on"], dict))
+                or any(not isinstance(state.get(key, []), list)
+                       or any(not isinstance(item, dict) for item in state.get(key, []))
+                       for key in ("pending", "blocked_history"))):
+            warn("invalid session state in snapshot — nothing restored")
+            return EXIT_FAIL
+        seen.add(slug)
     restored = 0
-    for state in data.get("open_sessions") or []:
+    for state in states:
         slug = state.get("session")
         if not isinstance(slug, str) or (session_dir(vault, slug) / "session.json").exists():
             continue
@@ -535,10 +572,13 @@ def cmd_pull(a: argparse.Namespace) -> int:
                 warn(f"no notebook titled '{title}' — pass --project (the name used when the "
                      "sessions were initialised) or --notebook <id>")
                 return EXIT_FAIL
-        sid = meta.get("state_source_id")
-        if not sid:
-            sources = list_of(json.loads(cli(["source", "list", "--notebook", nb, "--json"])), "sources")
-            matches = [s for s in sources if str(s.get("title", "")).startswith("duel-vault-state")]
+        # A different machine can replace the source, and --notebook can select a
+        # different notebook entirely. Never trust a cached source id on its own.
+        sources = list_of(json.loads(cli(["source", "list", "--notebook", nb, "--json"])), "sources")
+        sid = meta.get("state_source_id") if nb == meta.get("notebook_id") else None
+        if not any(s.get("id") == sid for s in sources):
+            matches = [s for s in sources if str(s.get("title", "")).startswith("duel-vault-state")
+                       and isinstance(s.get("id"), str)]
             if not matches:
                 warn("the notebook has no duel-vault state source")
                 return EXIT_FAIL

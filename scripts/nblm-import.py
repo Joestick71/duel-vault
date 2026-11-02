@@ -89,10 +89,9 @@ def yaml_scalar(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
-    text = str(value)
-    if text == "" or re.search(r"[:#\[\]{}&*!|>'\"%@`]", text) or text != text.strip():
-        return '"' + text.replace('"', '\\"') + '"'
-    return text
+    # JSON strings are valid YAML strings: preserve numeric/boolean-looking IDs
+    # and escape backslashes, quotes and line breaks without changing their type.
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def dump_frontmatter(data: dict[str, Any]) -> str:

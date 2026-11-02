@@ -541,14 +541,20 @@ def verify(vault: Path, slug: str) -> Findings:
         f.error("SL009", "tokens.json is missing or not a JSON object")
     else:
         entries = load_tokens(vault, slug)["entries"]
+        valid_entries = []
         for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                f.error("SL009", f"tokens.json entry {i}: not a JSON object")
+                continue
             value = entry.get("total")
             ok = value == "unavailable" or (
                 isinstance(value, int) and not isinstance(value, bool) and value >= 0
             )
             if not ok or entry.get("resource") not in TOKEN_RESOURCES:
                 f.error("SL009", f"tokens.json entry {i}: bad resource or total ({entry!r:.120})")
-        ledger = {(e.get("resource"), str(e.get("invocation"))) for e in entries}
+                continue
+            valid_entries.append(entry)
+        ledger = {(e.get("resource"), str(e.get("invocation"))) for e in valid_entries}
         for event in events:
             if (
                 event.get("kind") == "invocation"

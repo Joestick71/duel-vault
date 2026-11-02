@@ -46,6 +46,7 @@ scripts/
   progress-sync.py                publishes the project's progress to its NotebookLM notebook
 tests/
   test_session_tools.py           end-to-end tests with fake codex/notebooklm CLIs
+  test_review_regressions.py      recovery, source identity, malformed data and YAML round trips
 ```
 
 ## Model tiers
