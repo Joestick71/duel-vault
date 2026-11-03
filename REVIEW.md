@@ -25,7 +25,8 @@ Il test YAML verifica sia PyYAML sia il parser incorporato.
    processi concorrenti. Resta da definire una strategia esplicita per scegliere lo
    snapshot più recente fra più macchine, che il lock locale non coordina. La ricerca
    attuale, quando manca la fonte precedente, sceglie l'ultima fonte compatibile
-   nell'elenco della CLI: non è una garanzia cronologica.
+   nell'elenco della CLI: non è una garanzia cronologica. Strategia proposta, con le
+   decisioni aperte: [`PROPOSTA-MULTI-MACCHINA.md`](PROPOSTA-MULTI-MACCHINA.md).
 2. **Rafforzare gli schemi persistiti e la validazione della configurazione.**
    Centralizzare i controlli su budget, intervalli, elementi pending e versioni dei
    file. La correzione di `verify` riguarda gli elementi del registro token;
