@@ -726,8 +726,10 @@ def cmd_on_stop_failure(a: argparse.Namespace) -> int:
             "evidence": text.strip()[-300:],
         })
         schedule_notification(vault, slug, parse_iso(resume_after), probe=resume_after is None)
+        # Detached, so it can afford to wait for a push already running.
         spawn_detached([sys.executable, str(SKILL_SCRIPTS / "progress-sync.py"), "push",
-                        "--vault", str(vault), "--session", slug], env=dict(os.environ))
+                        "--vault", str(vault), "--session", slug, "--lock-wait", "600"],
+                       env=dict(os.environ))
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - a hook must never break Claude Code
         try:
             with open(NOTIFY_LOG, "a", encoding="utf-8") as fh:

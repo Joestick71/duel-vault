@@ -19,12 +19,13 @@ Il test YAML verifica sia PyYAML sia il parser incorporato.
 
 ## Miglioramenti proposti
 
-1. **Serializzare le operazioni di sincronizzazione.** `cmd_push` aggiorna
-   `notebook.json` e le fonti remote senza un lock sull'intera operazione.
-   Aggiungere test con processi concorrenti, un lock locale e una strategia esplicita
-   per scegliere lo snapshot più recente fra più macchine. La ricerca attuale,
-   quando manca la fonte precedente, sceglie l'ultima fonte compatibile nell'elenco
-   della CLI: non è una garanzia cronologica.
+1. **Serializzare le operazioni di sincronizzazione.** *Parte locale risolta il
+   3 novembre 2026:* `push` gira sotto un lock per vault
+   (`.duel-vault/progress/.push.lock`), con attesa massima `--lock-wait` e test con
+   processi concorrenti. Resta da definire una strategia esplicita per scegliere lo
+   snapshot più recente fra più macchine, che il lock locale non coordina. La ricerca
+   attuale, quando manca la fonte precedente, sceglie l'ultima fonte compatibile
+   nell'elenco della CLI: non è una garanzia cronologica.
 2. **Rafforzare gli schemi persistiti e la validazione della configurazione.**
    Centralizzare i controlli su budget, intervalli, elementi pending e versioni dei
    file. La correzione di `verify` riguarda gli elementi del registro token;

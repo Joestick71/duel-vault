@@ -27,8 +27,9 @@ sys.path.insert(0, str(SCRIPTS))
 import session_common as sc  # noqa: E402
 
 FAKE_NOTEBOOKLM = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
+time.sleep(float(os.environ.get("FAKE_NBLM_DELAY") or 0))  # widens race windows in tests
 db = Path(os.environ["FAKE_NBLM_DB"])
 st = json.loads(db.read_text()) if db.exists() else {"notebooks": {}, "next": 1, "calls": []}
 args = sys.argv[1:]

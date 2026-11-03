@@ -244,6 +244,15 @@ expired, the snapshot stays at `<vault>/.duel-vault/progress/` and the push exit
 ("queued"); the next push retries it, and `session-log.py verify` warns (`SL012`) until it
 lands. A failed push is a line in the log, never a reason to stop the session.
 
+**One push at a time.** Pushes on a vault are serialised by a local lock
+(`<vault>/.duel-vault/progress/.push.lock`): two at once — say the `StopFailure` hook's
+background push and a checkpoint in another Claude session — would each create the
+notebook, add the same session summary or orphan each other's state source. A push waits up
+to `--lock-wait` seconds (default 60; the hook's detached push waits 600) for one already
+running, then exits 3 like a queued push: the state is on disk, and the next push
+publishes whatever changed. The lock is per machine; two machines pushing at once are not
+coordinated.
+
 **Reading it back:**
 
 - Same machine: not needed — `session-state.py resume` reads the local state.

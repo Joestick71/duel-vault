@@ -117,6 +117,35 @@ class TestReviewRegressions(Sandbox):
         registry = json.loads((self.home / '.claude' / 'duel-vault.sessions.json').read_text())
         self.assertEqual(len(registry), 6 * 40)
 
+    def test_concurrent_pushes_publish_one_notebook_and_one_of_each_source(self):
+        self.init_route_b()
+        self.init_route_b('done')
+        self.state('set', *self.v('done'), '--status', 'complete')
+        env = dict(self.env, FAKE_NBLM_DELAY='0.3')
+        pushes = [subprocess.Popen([sys.executable, str(SCRIPTS / 'progress-sync.py'), 'push',
+                                    '--vault', str(self.vault)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+                  for _ in range(4)]
+        for push in pushes:
+            out, err = push.communicate(timeout=120)
+            self.assertEqual(push.returncode, 0, out + err)
+        db = json.loads(self.nblm_db.read_text())
+        self.assertEqual(len(db['notebooks']), 1)
+        sources = next(iter(db['notebooks'].values()))['sources']
+        titles = sorted(s['title'] for s in sources.values())
+        self.assertEqual(titles, ['duel-vault-session-done.md', 'duel-vault-state-vault.md'])
+        meta = json.loads((sc.progress_dir(self.vault) / 'notebook.json').read_text())
+        self.assertIn(meta['state_source_id'], sources)
+
+    def test_push_gives_up_on_a_held_lock_without_touching_the_notebook(self):
+        self.init_route_b()
+        with sc.file_lock(sc.progress_dir(self.vault) / '.push.lock'):
+            result = self.sync('push', '--vault', str(self.vault), '--session', 's1',
+                               '--lock-wait', '0.5', expect=3)
+        self.assertIn('another progress push', result.stdout)
+        self.assertFalse(self.nblm_db.exists())
+        self.assertIn('another push in progress', self.journal('s1')[-1]['summary'])
+
     def test_verify_reports_malformed_token_entries(self):
         self.init_route_b()
         for entry in (None, 42, 'bad', {'resource': [], 'total': 1}):

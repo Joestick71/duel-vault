@@ -17,7 +17,8 @@ is unreachable the push is queued locally and retried at the next one.
     progress-sync.py status --vault V
 
 Exit codes: 0 ok (pushed, unchanged or disabled) · 1 pull failed · 2 bad usage ·
-3 push queued (NotebookLM unavailable; local snapshot written).
+3 push queued (NotebookLM unavailable, or another push still running after --lock-wait;
+the local state is on disk and the next push publishes it).
 """
 
 from __future__ import annotations
@@ -36,11 +37,13 @@ from session_common import (
     EXIT_USAGE,
     EXIT_WARN,
     OPEN_STATUSES,
+    LockTimeout,
     SCHEMA,
     append_event,
     check_slug,
     check_vault,
     evaluate_budgets,
+    file_lock,
     iso,
     list_sessions,
     load_events,
@@ -58,6 +61,7 @@ from session_common import (
 from vault_common import MOC_RE, ROUTE_A_RE, SKIP_DIRS, load_config, parse_frontmatter
 
 STATE_MARKER = "<!-- duel-vault:state v1 -->"
+PUSH_LOCK = ".push.lock"  # in <vault>/.duel-vault/progress/
 STAMP_PREFIX = "> Snapshot time:"
 FLAG_ERROR_RE = re.compile(r"no such option|unrecognized arguments|unknown option", re.I)
 CLI_TIMEOUT = 120
@@ -415,8 +419,23 @@ def log_sync(vault: Path, slug: str | None, summary: str, **fields: object) -> N
 
 
 def cmd_push(a: argparse.Namespace) -> int:
+    """Pushes are serialised per vault: two at once would each create the notebook, add the
+    same session summary, or orphan each other's state source. A push waits up to
+    `--lock-wait` for one already running, then gives up like a queued push — the state is
+    on disk, and the next push publishes whatever changed."""
     vault = check_vault(a.vault)
     slug = check_slug(a.session) if a.session else None
+    try:
+        with file_lock(progress_dir(vault) / PUSH_LOCK, timeout=a.lock_wait):
+            return push_locked(vault, slug, a)
+    except LockTimeout:
+        say(f"another progress push is still running after {a.lock_wait:g}s — this one is "
+            "skipped; the next push publishes the latest state")
+        log_sync(vault, slug, "progress push skipped: another push in progress", status="queued")
+        return EXIT_WARN
+
+
+def push_locked(vault: Path, slug: str | None, a: argparse.Namespace) -> int:
     cfg = settings()
     project, text = render_state(vault)
     path = state_file(vault, project)
@@ -635,6 +654,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", help="session being checkpointed (logged; summary added when closed)")
     p.add_argument("--force", action="store_true", help="push even if unchanged")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--lock-wait", type=float, default=60.0, metavar="SECONDS",
+                   help="how long to wait for a push already running (default 60), then exit 3")
     p.set_defaults(func=cmd_push)
 
     p = sub.add_parser("pull", help="fetch the snapshot back from NotebookLM")

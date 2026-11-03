@@ -407,7 +407,7 @@ flowchart LR
 | Journal | `.duel-vault/<slug>/journal.jsonl` | `session-log`, `session-state`, `progress-sync` | `verify`, `render`, `resume` | no |
 | Token | `.duel-vault/<slug>/tokens.json` | `session-log invocation`, `tokens add` | guard budget, `tokens summary` | no |
 | Prompt e output grezzi | `.duel-vault/<slug>/prompts/`, `raw/`, `artifacts/` | Claude, Codex, verificatore, agente NotebookLM | Claude, `nblm-import` | no |
-| Snapshot di avanzamento | `.duel-vault/progress/` | `progress-sync render/push` | `progress-sync`, `verify` (SL012) | no |
+| Snapshot di avanzamento | `.duel-vault/progress/` | `progress-sync render/push`, un push alla volta sotto lock | `progress-sync`, `verify` (SL012) | no |
 | Note di sessione | `Sessions/<slug>/00…07` (B) · `Sessions/<data> <slug>.md` (A) | Claude, `render`, `nblm-import manifest` | `vault-lint`, `session-history`, `verify` | sì |
 | Deliverable | cartelle indicate da `CLAUDE.md` | Codex, esecutore, `nblm-import import` | Claude in revisione | sì |
 

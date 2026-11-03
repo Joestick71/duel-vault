@@ -365,9 +365,39 @@ def session_lock(sdir: Path) -> contextlib.AbstractContextManager[None]:
     return file_lock(sdir / ".lock")
 
 
+class LockTimeout(TimeoutError):
+    """`file_lock` could not get the lock within its `timeout`."""
+
+
+def _acquire(fh: Any, lock_path: Path, timeout: float | None) -> None:
+    if timeout is None:
+        if fcntl is not None:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        else:  # pragma: no cover - Windows
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        return
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        try:
+            if fcntl is not None:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:  # pragma: no cover - Windows
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError:  # held by another process
+            if time.monotonic() >= deadline:
+                raise LockTimeout(f"{lock_path} still held after {timeout:g}s") from None
+            time.sleep(0.2)
+
+
 @contextlib.contextmanager
-def file_lock(lock_path: Path) -> Iterator[None]:
-    """Exclusive inter-process lock on `lock_path`, re-entrant within this process."""
+def file_lock(lock_path: Path, timeout: float | None = None) -> Iterator[None]:
+    """Exclusive inter-process lock on `lock_path`, re-entrant within this process.
+
+    With `timeout` (seconds) it raises `LockTimeout` instead of waiting indefinitely.
+    """
     key = str(lock_path)
     if _LOCK_DEPTH.get(key):
         _LOCK_DEPTH[key] += 1
@@ -378,11 +408,7 @@ def file_lock(lock_path: Path) -> Iterator[None]:
         return
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "a+") as fh:
-        if fcntl is not None:
-            fcntl.flock(fh, fcntl.LOCK_EX)
-        else:  # pragma: no cover - Windows
-            fh.seek(0)
-            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        _acquire(fh, lock_path, timeout)
         _LOCK_DEPTH[key] = 1
         try:
             yield
