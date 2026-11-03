@@ -365,16 +365,25 @@ class TestBudgetsAndLimits(Sandbox):
         sc.save_state(self.vault, "s1", st)
         self.state("wait", *self.v(), "--poll", "1", "--grace", "0", "--max-wait", "2", expect=6)
 
-        # Codex is back: the probe succeeds and the block clears.
+        # Codex is back: the probe succeeds and the block is marked cleared. The session
+        # stays paused, with its cause on record, until `resume` reactivates it — a cut-off
+        # between the two must still leave a consistent record.
         self.codex_limit.unlink()
         self.state("wait", *self.v(), "--poll", "1", "--grace", "0", "--max-wait", "5")
         st = sc.load_state(self.vault, "s1")
-        self.assertIsNone(st["blocked_on"])
-        self.assertEqual(st["blocked_history"][-1]["resource"], "codex")
+        self.assertEqual(st["status"], "paused")
+        self.assertEqual(st["blocked_on"]["resource"], "codex")
+        cleared = st["blocked_on"]["cleared_at"]
+        self.assertIn("0 error(s)", self.log("verify", *self.v()).stdout)
+        self.assertIn("available again", self.state("status", *self.v()).stdout)
+        self.assertIn("already available", self.state("wait", *self.v()).stdout)
 
         brief = self.state("resume", *self.v()).stdout
         self.assertIn("re-run build step 3", brief)
-        self.assertEqual(sc.load_state(self.vault, "s1")["status"], "active")
+        st = sc.load_state(self.vault, "s1")
+        self.assertEqual((st["status"], st["blocked_on"]), ("active", None))
+        self.assertEqual(st["blocked_history"][-1]["resource"], "codex")
+        self.assertEqual(st["blocked_history"][-1]["cleared_at"], cleared)
         kinds = [e["kind"] for e in self.journal()]
         for kind in ("pause", "resource_available", "resume"):
             self.assertIn(kind, kinds)

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -102,6 +103,19 @@ class TestReviewRegressions(Sandbox):
                 self.assertEqual(state['status'], 'active')
                 self.assertNotIn('legacy_status', state)
                 shutil.rmtree(legacy)
+
+    def test_concurrent_registry_writes_keep_every_session(self):
+        code = ('import sys; sys.path.insert(0, sys.argv[1])\n'
+                'from pathlib import Path\n'
+                'import session_common as sc\n'
+                'for k in range(40):\n'
+                '    sc.register_claude_session(f"{sys.argv[2]}-{k}", Path(sys.argv[3]), "s1")\n')
+        workers = [subprocess.Popen([sys.executable, '-c', code, str(SCRIPTS), f'w{i}', str(self.vault)],
+                                    env=self.env) for i in range(6)]
+        for worker in workers:
+            self.assertEqual(worker.wait(timeout=60), 0)
+        registry = json.loads((self.home / '.claude' / 'duel-vault.sessions.json').read_text())
+        self.assertEqual(len(registry), 6 * 40)
 
     def test_verify_reports_malformed_token_entries(self):
         self.init_route_b()

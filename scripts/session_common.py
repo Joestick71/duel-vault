@@ -356,14 +356,19 @@ def write_json_atomic(path: Path, data: Any) -> None:
 _LOCK_DEPTH: dict[str, int] = {}
 
 
-@contextlib.contextmanager
-def session_lock(sdir: Path) -> Iterator[None]:
+def session_lock(sdir: Path) -> contextlib.AbstractContextManager[None]:
     """Exclusive lock on one session's working dir, re-entrant within this process.
 
     Background agents (NotebookLM waits, verifiers) may log while the main thread does;
     the lock keeps journal sequence numbers unique and state writes whole.
     """
-    key = str(sdir)
+    return file_lock(sdir / ".lock")
+
+
+@contextlib.contextmanager
+def file_lock(lock_path: Path) -> Iterator[None]:
+    """Exclusive inter-process lock on `lock_path`, re-entrant within this process."""
+    key = str(lock_path)
     if _LOCK_DEPTH.get(key):
         _LOCK_DEPTH[key] += 1
         try:
@@ -371,8 +376,8 @@ def session_lock(sdir: Path) -> Iterator[None]:
         finally:
             _LOCK_DEPTH[key] -= 1
         return
-    sdir.mkdir(parents=True, exist_ok=True)
-    with open(sdir / ".lock", "a+") as fh:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+") as fh:
         if fcntl is not None:
             fcntl.flock(fh, fcntl.LOCK_EX)
         else:  # pragma: no cover - Windows
@@ -592,17 +597,22 @@ def register_claude_session(claude_id: str, vault: Path, slug: str) -> None:
     Every script run from Claude Code's Bash tool sees `CLAUDE_CODE_SESSION_ID`, and the
     StopFailure hook receives the same id as `session_id`: the mapping is exact, never a
     guess based on recency or working directory.
+
+    Several Claude sessions can write it at once, so the read-modify-write runs under
+    its own lock — always taken last, after any session lock, so the two never deadlock.
+    Readers need no lock: the file is replaced atomically.
     """
     try:
-        data = read_json(REGISTRY_PATH, {})
-        data = data if isinstance(data, dict) else {}
-        cutoff = now() - REGISTRY_MAX_AGE
-        data = {
-            k: v for k, v in data.items()
-            if isinstance(v, dict) and (parse_iso(v.get("updated")) or cutoff) > cutoff
-        }
-        data[claude_id] = {"vault": str(vault), "session": slug, "updated": iso(now())}
-        write_json_atomic(REGISTRY_PATH, data)
+        with file_lock(REGISTRY_PATH.with_name(REGISTRY_PATH.name + ".lock")):
+            data = read_json(REGISTRY_PATH, {})
+            data = data if isinstance(data, dict) else {}
+            cutoff = now() - REGISTRY_MAX_AGE
+            data = {
+                k: v for k, v in data.items()
+                if isinstance(v, dict) and (parse_iso(v.get("updated")) or cutoff) > cutoff
+            }
+            data[claude_id] = {"vault": str(vault), "session": slug, "updated": iso(now())}
+            write_json_atomic(REGISTRY_PATH, data)
     except OSError:
         pass  # the registry is a convenience for the hook; never fail a state write on it
 

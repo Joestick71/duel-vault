@@ -191,11 +191,20 @@ def cmd_guard(a: argparse.Namespace) -> int:
     return budget_exit(level)
 
 
-def describe_block(block: dict | None) -> str:
-    if not block:
-        return "none"
+def block_text(block: dict) -> str:
     until = block.get("resume_after") or "unknown — probe to find out"
     return f"{block.get('resource')} ({block.get('kind', 'manual')}) until {until}: {block.get('reason', '')}"
+
+
+def describe_block(block: dict | None) -> str:
+    """The session's current block. One that `wait` saw lift stays on record, marked
+    `cleared_at`, until `resume` reactivates the session."""
+    if not block:
+        return "none"
+    if block.get("cleared_at"):
+        return (f"{block.get('resource')} ({block.get('kind', 'manual')}) available again since "
+                f"{block['cleared_at']} — run `resume` (was: {block.get('reason', '')})")
+    return block_text(block)
 
 
 def cmd_status(a: argparse.Namespace) -> int:
@@ -401,6 +410,11 @@ def cmd_wait(a: argparse.Namespace) -> int:
     if not block:
         say("not blocked — nothing to wait for")
         return EXIT_OK
+    if block.get("cleared_at"):
+        say(f"{block.get('resource')} already available since {block['cleared_at']} — resume with: "
+            f"python3 {script('session-state.py')} resume --vault {shlex.quote(str(vault))} "
+            f"--session {shlex.quote(slug)}")
+        return EXIT_OK
     deadline = now() + timedelta(seconds=a.max_wait)
     resume_after = parse_iso(block.get("resume_after"))
     if resume_after and resume_after > deadline:
@@ -447,9 +461,9 @@ def cmd_wait(a: argparse.Namespace) -> int:
             say(f"{block.get('resource')} is available, but the session's block changed while "
                 f"waiting (now: {describe_block(current)}) — left as is")
             return EXIT_OK
-        cleared = dict(block, cleared_at=iso(now()), probes=attempts)
-        state["blocked_history"] = (state.get("blocked_history") or [])[-19:] + [cleared]
-        state["blocked_on"] = None
+        # The block stays on record, marked cleared: the session is still paused until
+        # `resume` reactivates it, and a paused session must always say why.
+        state["blocked_on"] = dict(block, cleared_at=iso(now()), probes=attempts)
         save_state(vault, slug, state)
         append_event(
             vault,
@@ -486,7 +500,7 @@ def brief(vault: Path, state: dict, events: list[dict], budget_line: str) -> str
     history = state.get("blocked_history") or []
     if history:
         last = history[-1]
-        lines.append(f"- Last block: {describe_block(last)} (cleared {last.get('cleared_at', '?')})")
+        lines.append(f"- Last block: {block_text(last)} (cleared {last.get('cleared_at', '?')})")
     models = state.get("models") or {}
     lines.append(
         "- Models: " + " · ".join(f"{k} `{v}`" for k, v in models.items() if v)
@@ -528,9 +542,10 @@ def cmd_resume(a: argparse.Namespace) -> int:
         say(f"{slug} is {state.get('status')} — nothing to resume")
         return EXIT_OK
     block = state.get("blocked_on")
-    if block and block.get("resource") in ("codex", "notebooklm"):
-        # Only external resources can still be blocked. A Claude block is lifted by the very
-        # fact that Claude is running this; a budget or user pause by the user's decision.
+    if block and block.get("resource") in ("codex", "notebooklm") and not block.get("cleared_at"):
+        # Only external resources can still be blocked — and not once `wait` saw them back.
+        # A Claude block is lifted by the very fact that Claude is running this; a budget or
+        # user pause by the user's decision.
         until = parse_iso(block.get("resume_after"))
         if until is None or until > now():
             say(f"{slug} is still blocked: {describe_block(block)}")
@@ -553,7 +568,10 @@ def cmd_resume(a: argparse.Namespace) -> int:
             previous = state.get("status")
             if state.get("blocked_on"):
                 history = (state.get("blocked_history") or [])[-19:]
-                state["blocked_history"] = history + [dict(state["blocked_on"], cleared_at=iso(now()))]
+                lifted = state["blocked_on"]
+                state["blocked_history"] = history + [
+                    dict(lifted, cleared_at=lifted.get("cleared_at") or iso(now()))
+                ]
             state["blocked_on"] = None
             state["status"] = "active"
             save_state(vault, slug, state)

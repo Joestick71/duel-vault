@@ -399,7 +399,7 @@ flowchart LR
 | Archivio | Posizione | Scritto da | Letto da | In Obsidian |
 |---|---|---|---|---|
 | Config | `~/.claude/duel-vault.config.json` | Claude (primo avvio), `session-state budgets` | tutti gli script | — |
-| Registro sessioni | `~/.claude/duel-vault.sessions.json` | ogni scrittura di stato (id sessione Claude → vault/slug) | hook `on-stop-failure` | — |
+| Registro sessioni | `~/.claude/duel-vault.sessions.json` | ogni scrittura di stato, sotto lock (id sessione Claude → vault/slug) | hook `on-stop-failure` | — |
 | Hook | `~/.claude/settings.json` | `session-state install-hook` | Claude Code | — |
 | Log notifiche | `~/.claude/duel-vault-notifications.log` | `notify` | utente | — |
 | Contesto | `CLAUDE.md`, `Home.md`, `.claude/skills/` | utente | Fase 0 | sì |
@@ -427,7 +427,7 @@ Il notebook di avanzamento si disattiva con `"progress_notebook": {"enabled": fa
 
 ### 7.1 Stati di una sessione
 
-`session.json` attraversa quattro stati. Il passaggio a `paused` registra sempre la causa (`blocked_on`): risorsa, tipo di limite, orario di reset, prova.
+`session.json` attraversa quattro stati. Il passaggio a `paused` registra sempre la causa (`blocked_on`): risorsa, tipo di limite, orario di reset, prova. Quando `wait` vede tornare la risorsa, il blocco resta registrato e viene segnato come risolto (`cleared_at`). La sessione rimane `paused` finché `resume` non la riattiva e sposta il blocco nello storico.
 
 ```mermaid
 stateDiagram-v2
@@ -436,7 +436,7 @@ stateDiagram-v2
     active --> paused: limit Codex o NotebookLM
     active --> paused: pause per budget o utente
     active --> paused: hook StopFailure (Claude)
-    paused --> paused: wait · risorsa di nuovo disponibile
+    paused --> paused: wait · blocco segnato come risolto
     paused --> active: resume
     active --> complete: set --status complete
     active --> abandoned: set --status abandoned

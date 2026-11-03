@@ -119,7 +119,10 @@ once if the probe fails for a reason that is *not* a limit (a flag the installed
 does not know, a repo check, a crash) — that says nothing about the quota, so polling it for
 days would be pointless. Fix the probe or check by hand, then `resume --force`. If the
 session was resumed by hand or blocked on something else while it waited, it leaves the
-new state alone. Started with the Bash tool's
+new state alone. When the resource is back it does not reactivate the session: the block
+stays in `blocked_on`, marked `cleared_at`, and the session stays `paused` — with its cause
+on record — until `resume` reactivates it, so a cut-off between the two leaves a consistent
+record and `resume` no longer refuses. Started with the Bash tool's
 `run_in_background`, it re-invokes Claude when it exits: run `resume` and carry on. While it
 waits, keep doing whatever does not need the blocked resource — interview questions,
 review of finished steps, logs — and tell the user the session is waiting and until when.

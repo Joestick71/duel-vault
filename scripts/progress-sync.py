@@ -286,7 +286,12 @@ def render_state(vault: Path) -> tuple[str, str]:
             f"- Task: {oneline(s.get('task')) or '(not recorded)'}",
             f"- Next action: {oneline(s.get('next_action'), 400) or '(not recorded)'}",
         ]
-        if block:
+        if block and block.get("cleared_at"):
+            lines.append(
+                f"- {block.get('resource')} available again since {block['cleared_at']} — waiting "
+                f"for `resume` (was: {oneline(block.get('reason'))})"
+            )
+        elif block:
             lines.append(
                 f"- Blocked on {block.get('resource')} ({block.get('kind')}) until "
                 f"{block.get('resume_after') or 'unknown'}: {oneline(block.get('reason'))}"
