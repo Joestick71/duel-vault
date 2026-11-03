@@ -20,10 +20,13 @@ Point the skill at a named vault project (e.g. `lavora sul progetto <nome>`) and
 6. **Tracks tokens** — Codex usage is measured per invocation and per model, subagent usage is taken from what each subagent reports, main-thread Claude usage is estimated, and a running token table is kept throughout the session, checked against optional per-session budgets.
 7. **Records everything and survives cut-offs** — a complete journal of activities, decisions, file changes and tokens; a `next_action` that is always current; a clean pause when Codex or Claude runs out of quota and a resume as soon as it is back; and a progress snapshot in the project's own NotebookLM notebook (see *Journal, recovery and the progress notebook* below).
 
+Diagrams of the use cases, the session lifecycle, the Route B sequence and the data flows are in [`ARCHITETTURA.md`](ARCHITETTURA.md) (in Italian).
+
 ## Repository layout
 
 ```
 SKILL.md                          entry point: roles, phases, checkpoints, closing duties
+ARCHITETTURA.md                   diagrams: use cases, lifecycle, sequences, data flows (Italian)
 references/
   project-bootstrap.md            how to resolve a vault project and build the project brief
   consensus-protocol.md           the Claude<->Codex planning protocol (rounds, verdicts, escalation)
