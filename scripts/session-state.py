@@ -230,8 +230,9 @@ def cmd_list(a: argparse.Namespace) -> int:
         say("no sessions" + (" open" if a.open else "") + f" in {vault}")
         return EXIT_OK
     for s in sessions:
+        hint = " · pre-journal: upgrade with `session-log.py init`" if s.get("legacy") else ""
         say(f"{s.get('session')} · {s.get('route')} · {s.get('status')} · {s.get('phase')} · "
-            f"updated {s.get('updated')}")
+            f"updated {s.get('updated')}{hint}")
     return EXIT_OK
 
 
@@ -774,8 +775,21 @@ def cmd_budgets(a: argparse.Namespace) -> int:
         except ValueError as exc:
             raise SystemExit(f"{CONFIG_PATH} is not valid JSON ({exc}) — fix it first")
     cfg = load_config()
+    if a.set and a.track_only:
+        raise SystemExit("--set and --track-only are exclusive: --track-only clears every cap")
     if a.set or a.track_only:
-        entry: dict = {k: None for k in ("codex", "claude_main", "claude_delegated")}
+        by_project = cfg.get("budgets_by_project")
+        if by_project is None:
+            by_project = cfg["budgets_by_project"] = {}
+        elif not isinstance(by_project, dict):
+            raise SystemExit(f"`budgets_by_project` in {CONFIG_PATH} is not an object — fix it first")
+        current = by_project.get(a.project)
+        # --set changes only the caps it names; the others keep their saved values.
+        entry: dict = dict(current) if isinstance(current, dict) and not a.track_only else {}
+        if a.track_only and isinstance(current, dict) and "warn_ratio" in current:
+            entry["warn_ratio"] = current["warn_ratio"]
+        for key in ("codex", "claude_main", "claude_delegated"):
+            entry.setdefault(key, None)
         for pair in a.set:
             key, _, value = pair.partition("=")
             key = key.strip()
@@ -786,7 +800,7 @@ def cmd_budgets(a: argparse.Namespace) -> int:
                     float(value) if key == "warn_ratio" else int(value))
             except ValueError:
                 raise SystemExit(f"--set {key}= needs a number, got {value!r}") from None
-        cfg.setdefault("budgets_by_project", {})[a.project] = entry
+        by_project[a.project] = entry
         save_config(cfg)
         say(f"saved budgets for {a.project!r} in {CONFIG_PATH}")
     configured = project_has_budgets(a.project, cfg)
@@ -887,8 +901,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("budgets", help="show or save a project's per-session token budgets")
     p.add_argument("--project", required=True)
-    p.add_argument("--set", action="append", default=[], metavar="KEY=N")
-    p.add_argument("--track-only", action="store_true", help="record the answer 'no budgets'")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=N",
+                   help="save one cap (KEY=none clears it); caps not named keep their saved value")
+    p.add_argument("--track-only", action="store_true",
+                   help="record the answer 'no budgets': clears every cap")
     p.set_defaults(func=cmd_budgets)
 
     p = sub.add_parser("status", help="one session's state")

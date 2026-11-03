@@ -530,12 +530,19 @@ def load_state(vault: Path, slug: str) -> dict | None:
     if not isinstance(data, dict):
         return None
     # session.json files written by hand before the journal existed have no `schema`.
-    # They must never pass for open sessions: Phase 0 would offer every old session for
-    # resumption. `session-log.py init` upgrades one explicitly.
+    # They must never pass for open sessions — not even when they claim `active` or
+    # `paused` — or Phase 0 would offer every old session for resumption.
+    # `session-log.py init` upgrades one explicitly.
     if "schema" not in data:
         data["legacy"] = True
-        if data.get("status") not in STATUSES:
-            data["status"] = "legacy"
+        if "status" in data:
+            data["legacy_status"] = data["status"]
+        data["status"] = "legacy"
+        if not data.get("updated"):
+            # Without it the defaults below would stamp "now", sorting it first.
+            with contextlib.suppress(OSError):
+                mtime = state_path(vault, slug).stat().st_mtime
+                data["updated"] = iso(datetime.fromtimestamp(mtime).astimezone())
     defaults = new_state(vault, slug, str(data.get("route", "B")), vault.name, slug, "")
     for key, value in defaults.items():
         data.setdefault(key, value)

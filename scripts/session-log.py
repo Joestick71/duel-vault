@@ -134,7 +134,7 @@ def upgrade_legacy(vault: Path, slug: str, old: dict, a: argparse.Namespace) -> 
     """Adopt a session.json written before the journal existed, keeping what it held."""
     state = new_state(vault, slug, a.route, a.project or vault.name, a.title or slug, a.task or "")
     for key, value in old.items():
-        if key in ("legacy", "status", "schema", "created", "updated"):
+        if key in ("legacy", "legacy_status", "status", "schema", "created", "updated"):
             continue
         state[key] = value
     state["route"] = a.route

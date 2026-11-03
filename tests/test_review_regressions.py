@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import shutil
 import sys
 import unittest
 from unittest import mock
@@ -66,6 +68,40 @@ class TestReviewRegressions(Sandbox):
                     'schema': sc.SCHEMA, 'open_sessions': [valid, item]})
                 self.assertEqual(sync.restore(self.vault, text), sc.EXIT_FAIL)
                 self.assertFalse(sc.session_dir(self.vault, 'restored').exists())
+
+    def test_budgets_set_changes_only_the_named_caps(self):
+        def saved():
+            cfg = json.loads((self.home / '.claude' / 'duel-vault.config.json').read_text())
+            return cfg['budgets_by_project']['P']
+        self.state('budgets', '--project', 'P', '--set', 'codex=400000')
+        self.state('budgets', '--project', 'P', '--set', 'claude_main=150000')
+        self.assertEqual((saved()['codex'], saved()['claude_main']), (400000, 150000))
+        self.state('budgets', '--project', 'P', '--set', 'codex=none')
+        self.assertEqual((saved()['codex'], saved()['claude_main']), (None, 150000))
+        self.state('budgets', '--project', 'P', '--track-only')
+        self.assertEqual({k: saved()[k] for k in ('codex', 'claude_main', 'claude_delegated')},
+                         {'codex': None, 'claude_main': None, 'claude_delegated': None})
+        self.state('budgets', '--project', 'P', '--track-only', '--set', 'codex=1', expect=2)
+
+    def test_pre_journal_session_with_an_open_status_is_never_offered(self):
+        for status in ('active', 'paused'):
+            with self.subTest(status=status):
+                legacy = sc.session_dir(self.vault, 'old')
+                legacy.mkdir(parents=True, exist_ok=True)
+                path = legacy / 'session.json'
+                path.write_text(json.dumps({'status': status, 'phase': 'build'}))
+                os.utime(path, (1_700_000_000, 1_700_000_000))
+                self.assertIn('no sessions open',
+                              self.state('list', '--vault', str(self.vault), '--open').stdout)
+                self.assertIn('no open session', self.state('resume', '--vault', str(self.vault)).stdout)
+                listed = json.loads(self.state('list', '--vault', str(self.vault), '--json').stdout)
+                self.assertEqual(listed[0]['status'], 'legacy')
+                self.assertEqual(sc.parse_iso(listed[0]['updated']).timestamp(), 1_700_000_000)
+                self.log('init', *self.v('old'), '--route', 'B')
+                state = sc.load_state(self.vault, 'old')
+                self.assertEqual(state['status'], 'active')
+                self.assertNotIn('legacy_status', state)
+                shutil.rmtree(legacy)
 
     def test_verify_reports_malformed_token_entries(self):
         self.init_route_b()

@@ -61,8 +61,12 @@ Per-session caps, **per project**, in `~/.claude/duel-vault.config.json`:
 ```bash
 python3 scripts/session-state.py budgets --project "<project>"        # configured or not?
 python3 scripts/session-state.py budgets --project "<project>" --set codex=400000 --set claude_main=150000
+python3 scripts/session-state.py budgets --project "<project>" --set codex=none  # clear one cap
 python3 scripts/session-state.py budgets --project "<project>" --track-only   # the answer "no caps"
 ```
+
+`--set` changes only the caps it names; every other cap keeps its saved value, so caps can
+be saved one at a time. `--track-only` clears every cap and cannot be combined with `--set`.
 
 When it says **NOT configured**, ask the user at Route B triage — alongside the Codex
 models, before `session-log.py init` (which snapshots the budgets into the session) — with
